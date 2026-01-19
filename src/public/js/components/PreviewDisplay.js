@@ -40,11 +40,15 @@ export class PreviewDisplay {
     }
 
     const { summary } = this.preview;
+    const modelFilter = this.preview.model_filter;
 
     let html = `
       <div class="preview-summary card">
         <h3>Synchronization Summary</h3>
         <p>Generated: ${new Date(this.preview.generated_at).toLocaleString()}</p>
+        <p>Models: ${modelFilter && modelFilter.length > 0
+          ? modelFilter.map(model => this.escapeHtml(model)).join(', ')
+          : 'All'}</p>
 
         <div class="summary-stats flex">
           <div class="stat-card">

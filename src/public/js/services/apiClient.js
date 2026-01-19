@@ -126,6 +126,44 @@ class APIClient {
     return this.post('/sync/rollback', data);
   }
 
+  // Schedule endpoints
+  async getSchedules() {
+    return this.get('/schedule');
+  }
+
+  async createSchedule(data) {
+    return this.post('/schedule', data);
+  }
+
+  async updateSchedule(id, data) {
+    return this.put(`/schedule/${id}`, data);
+  }
+
+  async deleteSchedule(id) {
+    return this.delete(`/schedule/${id}`);
+  }
+
+  async toggleSchedule(id) {
+    return this.post(`/schedule/${id}/toggle`);
+  }
+
+  // History endpoints
+  async getHistory(params = {}) {
+    const query = new URLSearchParams(params);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.get(`/history${suffix}`);
+  }
+
+  async getHistoryDetail(id) {
+    return this.get(`/history/${id}`);
+  }
+
+  async exportHistory(params = {}) {
+    const query = new URLSearchParams(params);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return `${this.baseURL}/history/export${suffix}`;
+  }
+
   // Health check
   async health() {
     return this.get('/health');

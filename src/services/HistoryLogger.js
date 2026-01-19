@@ -67,6 +67,16 @@ export class HistoryLogger {
   updateRun(syncRunId, data) {
     return this.syncRunModel.update(syncRunId, data);
   }
+
+  /**
+   * Log a single sync operation
+   */
+  logSyncOperation(syncRunId, operation) {
+    return this.syncOperationModel.create({
+      sync_run_id: syncRunId,
+      ...operation
+    });
+  }
 }
 
 export default HistoryLogger;

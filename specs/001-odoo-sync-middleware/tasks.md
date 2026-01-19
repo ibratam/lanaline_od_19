@@ -172,29 +172,29 @@ description: "Task list for Odoo 19 Database Synchronization Middleware implemen
 
 ### Contract Tests for User Story 4 (REQUIRED - TDD)
 
-- [ ] T073 [P] [US4] Contract test: POST /api/schedule creates schedule in tests/contract/schedule.test.js
-- [ ] T074 [P] [US4] Contract test: GET /api/schedule lists all schedules in tests/contract/schedule.test.js
-- [ ] T075 [P] [US4] Contract test: PUT /api/schedule/{id} updates schedule in tests/contract/schedule.test.js
-- [ ] T076 [P] [US4] Contract test: DELETE /api/schedule/{id} removes schedule in tests/contract/schedule.test.js
-- [ ] T077 [P] [US4] Contract test: POST /api/schedule/{id}/toggle enables/disables schedule in tests/contract/schedule.test.js
-- [ ] T078 [US4] Integration test: Schedule creation and execution in tests/integration/scheduledExecution.test.js
+- [x] T073 [P] [US4] Contract test: POST /api/schedule creates schedule in tests/contract/schedule.test.js
+- [x] T074 [P] [US4] Contract test: GET /api/schedule lists all schedules in tests/contract/schedule.test.js
+- [x] T075 [P] [US4] Contract test: PUT /api/schedule/{id} updates schedule in tests/contract/schedule.test.js
+- [x] T076 [P] [US4] Contract test: DELETE /api/schedule/{id} removes schedule in tests/contract/schedule.test.js
+- [x] T077 [P] [US4] Contract test: POST /api/schedule/{id}/toggle enables/disables schedule in tests/contract/schedule.test.js
+- [x] T078 [US4] Integration test: Schedule creation and execution in tests/integration/scheduledExecution.test.js
 
 ### Implementation for User Story 4
 
-- [ ] T079 [P] [US4] Create src/services/ScheduleManager.js with startScheduler(), stopScheduler(), addSchedule() using node-cron
-- [ ] T080 [P] [US4] Enhance ScheduleManager with loadSchedulesOnStartup() to restore active schedules from database
-- [ ] T081 [US4] Create src/api/routes/schedule.js with GET /api/schedule, POST /api/schedule, PUT /api/schedule/{id}, DELETE /api/schedule/{id}
-- [ ] T082 [US4] Create src/api/routes/schedule.js POST /api/schedule/{id}/toggle endpoint
-- [ ] T083 [US4] Implement cron validation: validate frequency string is valid cron expression (5-part format)
-- [ ] T084 [US4] Implement schedule preview: calculate next 5 scheduled run times from frequency + timezone
-- [ ] T085 [US4] Create src/public/js/components/ScheduleEditor.js - UI component for creating/editing schedules (frequency dropdown, time picker, timezone)
-- [ ] T086 [US4] Add frequency options: hourly, daily, weekly, monthly, custom cron expression
-- [ ] T087 [US4] Add timezone selector using IANA timezone list
-- [ ] T088 [US4] Add email notification configuration in ScheduleEditor (optional email for error alerts)
-- [ ] T089 [US4] Create src/services/NotificationService.js for sending error alerts (email or in-app notification)
-- [ ] T090 [US4] When scheduled sync encounters errors: call NotificationService to send alert to configured recipients
-- [ ] T091 [US4] Unit test: ScheduleManager.addSchedule() with various cron expressions in tests/unit/ScheduleManager.test.js
-- [ ] T092 [US4] Unit test: Cron expression validation in tests/unit/ScheduleManager.test.js
+- [x] T079 [P] [US4] Create src/services/ScheduleManager.js with startScheduler(), stopScheduler(), addSchedule() using node-cron
+- [x] T080 [P] [US4] Enhance ScheduleManager with loadSchedulesOnStartup() to restore active schedules from database
+- [x] T081 [US4] Create src/api/routes/schedule.js with GET /api/schedule, POST /api/schedule, PUT /api/schedule/{id}, DELETE /api/schedule/{id}
+- [x] T082 [US4] Create src/api/routes/schedule.js POST /api/schedule/{id}/toggle endpoint
+- [x] T083 [US4] Implement cron validation: validate frequency string is valid cron expression (5-part format)
+- [x] T084 [US4] Implement schedule preview: calculate next 5 scheduled run times from frequency + timezone
+- [x] T085 [US4] Create src/public/js/components/ScheduleEditor.js - UI component for creating/editing schedules (frequency dropdown, time picker, timezone)
+- [x] T086 [US4] Add frequency options: hourly, daily, weekly, monthly, custom cron expression
+- [x] T087 [US4] Add timezone selector using IANA timezone list
+- [x] T088 [US4] Add email notification configuration in ScheduleEditor (optional email for error alerts)
+- [x] T089 [US4] Create src/services/NotificationService.js for sending error alerts (email or in-app notification)
+- [x] T090 [US4] When scheduled sync encounters errors: call NotificationService to send alert to configured recipients
+- [x] T091 [US4] Unit test: ScheduleManager.addSchedule() with various cron expressions in tests/unit/ScheduleManager.test.js
+- [x] T092 [US4] Unit test: Cron expression validation in tests/unit/ScheduleManager.test.js
 
 **Checkpoint**: User Story 4 complete - Recurring syncs can be scheduled and execute automatically
 
@@ -208,23 +208,23 @@ description: "Task list for Odoo 19 Database Synchronization Middleware implemen
 
 ### Contract Tests for User Story 5 (REQUIRED - TDD)
 
-- [ ] T093 [P] [US5] Contract test: GET /api/history returns list with pagination in tests/contract/history.test.js
-- [ ] T094 [P] [US5] Contract test: GET /api/history/{id} returns sync details with conflicts/errors in tests/contract/history.test.js
-- [ ] T095 [P] [US5] Contract test: GET /api/history/export exports as CSV/JSON in tests/contract/history.test.js
-- [ ] T096 [US5] Integration test: History display and export in tests/integration/historyWorkflow.test.js
+- [x] T093 [P] [US5] Contract test: GET /api/history returns list with pagination in tests/contract/history.test.js
+- [x] T094 [P] [US5] Contract test: GET /api/history/{id} returns sync details with conflicts/errors in tests/contract/history.test.js
+- [x] T095 [P] [US5] Contract test: GET /api/history/export exports as CSV/JSON in tests/contract/history.test.js
+- [x] T096 [US5] Integration test: History display and export in tests/integration/historyWorkflow.test.js
 
 ### Implementation for User Story 5
 
-- [ ] T097 [P] [US5] Create src/api/routes/history.js with GET /api/history endpoint (supports limit, offset, status, triggered_by filters)
-- [ ] T098 [P] [US5] Create src/api/routes/history.js with GET /api/history/{id} endpoint returning detailed sync info
-- [ ] T099 [P] [US5] Create src/api/routes/history.js with GET /api/history/export endpoint (format: csv or json query param)
-- [ ] T100 [US5] Create src/public/js/components/HistoryTable.js - UI component displaying sync history with pagination
-- [ ] T101 [US5] Add history filters: status dropdown (pending, running, completed, failed, rolled_back), trigger type (manual, scheduled)
-- [ ] T102 [US5] Add sync detail modal: click row → show full details (affected models, record counts per model, errors, timestamps)
-- [ ] T103 [US5] Add export button: export current filtered history as CSV or JSON file
-- [ ] T104 [US5] Implement CSV export: format sync_runs table as CSV with headers and all fields
-- [ ] T105 [US5] Implement JSON export: format as JSON array of sync run objects with related conflicts/errors
-- [ ] T106 [US5] Unit test: HistoryLogger.logSyncOperation() in tests/unit/HistoryLogger.test.js
+- [x] T097 [P] [US5] Create src/api/routes/history.js with GET /api/history endpoint (supports limit, offset, status, triggered_by filters)
+- [x] T098 [P] [US5] Create src/api/routes/history.js with GET /api/history/{id} endpoint returning detailed sync info
+- [x] T099 [P] [US5] Create src/api/routes/history.js with GET /api/history/export endpoint (format: csv or json query param)
+- [x] T100 [US5] Create src/public/js/components/HistoryTable.js - UI component displaying sync history with pagination
+- [x] T101 [US5] Add history filters: status dropdown (pending, running, completed, failed, rolled_back), trigger type (manual, scheduled)
+- [x] T102 [US5] Add sync detail modal: click row → show full details (affected models, record counts per model, errors, timestamps)
+- [x] T103 [US5] Add export button: export current filtered history as CSV or JSON file
+- [x] T104 [US5] Implement CSV export: format sync_runs table as CSV with headers and all fields
+- [x] T105 [US5] Implement JSON export: format as JSON array of sync run objects with related conflicts/errors
+- [x] T106 [US5] Unit test: HistoryLogger.logSyncOperation() in tests/unit/HistoryLogger.test.js
 
 **Checkpoint**: User Story 5 complete - Full audit trail with history viewing and export
 
@@ -238,17 +238,17 @@ description: "Task list for Odoo 19 Database Synchronization Middleware implemen
 
 ### Contract Tests for User Story 6 (REQUIRED - TDD)
 
-- [ ] T107 [P] [US6] Contract test: /api/sync/preview with model_filter returns only selected models in tests/contract/sync.test.js
-- [ ] T108 [P] [US6] Contract test: /api/sync/execute with model_filter syncs only selected models in tests/contract/sync.test.js
+- [x] T107 [P] [US6] Contract test: /api/sync/preview with model_filter returns only selected models in tests/contract/sync.test.js
+- [x] T108 [P] [US6] Contract test: /api/sync/execute with model_filter syncs only selected models in tests/contract/sync.test.js
 
 ### Implementation for User Story 6
 
-- [ ] T109 [P] [US6] Enhance SyncEngine to support model_filter parameter
-- [ ] T110 [P] [US6] Modify OdooClient.search() to filter by model names if model_filter provided
-- [ ] T111 [US6] Create src/public/js/components/ModelSelector.js - UI component for selecting which models to sync (multi-select)
-- [ ] T112 [US6] Add model filter to PreviewDisplay: show which models will be synced
-- [ ] T113 [US6] Add model filter to SyncEditor: option to select specific models or sync all
-- [ ] T114 [US6] Unit test: SyncEngine with model_filter in tests/unit/SyncEngine.test.js
+- [x] T109 [P] [US6] Enhance SyncEngine to support model_filter parameter
+- [x] T110 [P] [US6] Modify OdooClient.search() to filter by model names if model_filter provided
+- [x] T111 [US6] Create src/public/js/components/ModelSelector.js - UI component for selecting which models to sync (multi-select)
+- [x] T112 [US6] Add model filter to PreviewDisplay: show which models will be synced
+- [x] T113 [US6] Add model filter to SyncEditor: option to select specific models or sync all
+- [x] T114 [US6] Unit test: SyncEngine with model_filter in tests/unit/SyncEngine.test.js
 
 **Checkpoint**: User Story 6 complete - Selective model synchronization enabled
 

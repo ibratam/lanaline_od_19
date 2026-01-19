@@ -3,6 +3,9 @@ import ConnectionsList from './components/ConnectionsList.js';
 import PreviewDisplay from './components/PreviewDisplay.js';
 import ProgressMonitor from './components/ProgressMonitor.js';
 import SyncResults from './components/SyncResults.js';
+import ScheduleEditor from './components/ScheduleEditor.js';
+import HistoryTable from './components/HistoryTable.js';
+import ModelSelector from './components/ModelSelector.js';
 import apiClient from './services/apiClient.js';
 
 /**
@@ -15,6 +18,10 @@ class OdooSyncApp {
     this.previewDisplay = new PreviewDisplay();
     this.progressMonitor = new ProgressMonitor();
     this.syncResults = new SyncResults();
+    this.scheduleEditor = new ScheduleEditor();
+    this.historyTable = new HistoryTable();
+    this.previewModelSelector = new ModelSelector();
+    this.syncModelSelector = new ModelSelector();
     this.activeTab = 'config';
     this.lastSyncRunId = null;
   }
@@ -28,6 +35,8 @@ class OdooSyncApp {
       await this.loadConfigTab();
       await this.loadPreviewTab();
       await this.loadSyncTab();
+      await this.loadScheduleTab();
+      await this.loadHistoryTab();
     } catch (error) {
       console.error('Failed to initialize app:', error);
       this.showError('Failed to initialize application');
@@ -120,13 +129,17 @@ class OdooSyncApp {
           <button class="btn btn-primary" id="preview-btn">Generate Preview</button>
         </div>
       </div>
+      ${this.previewModelSelector.render('preview-models', 'Preview Models')}
     `;
+
+    this.previewModelSelector.attachHandlers('preview-models');
 
     const previewButton = document.getElementById('preview-btn');
     previewButton?.addEventListener('click', async () => {
       const sourceId = Number(document.getElementById('preview-source')?.value);
       const targetId = Number(document.getElementById('preview-target')?.value);
       const container = document.getElementById('preview-container');
+      const modelFilter = this.previewModelSelector.getSelectedModels('preview-models');
 
       if (!sourceId || !targetId || sourceId === targetId) {
         if (container) {
@@ -135,7 +148,7 @@ class OdooSyncApp {
         return;
       }
 
-      const html = await this.previewDisplay.load(sourceId, targetId);
+      const html = await this.previewDisplay.load(sourceId, targetId, modelFilter);
       if (container) {
         container.innerHTML = html;
       }
@@ -168,12 +181,16 @@ class OdooSyncApp {
           <button class="btn btn-secondary" id="sync-rollback-btn">Rollback</button>
         </div>
       </div>
+      ${this.syncModelSelector.render('sync-models', 'Sync Models')}
     `;
+
+    this.syncModelSelector.attachHandlers('sync-models');
 
     const startButton = document.getElementById('sync-start-btn');
     startButton?.addEventListener('click', async () => {
       const sourceId = Number(document.getElementById('sync-source')?.value);
       const targetId = Number(document.getElementById('sync-target')?.value);
+      const modelFilter = this.syncModelSelector.getSelectedModels('sync-models');
 
       if (!sourceId || !targetId || sourceId === targetId) {
         this.showError('Select two different connections to start sync.');
@@ -183,7 +200,8 @@ class OdooSyncApp {
       try {
         const response = await apiClient.executeSync({
           source_db_id: sourceId,
-          target_db_id: targetId
+          target_db_id: targetId,
+          model_filter: modelFilter
         });
         this.lastSyncRunId = response.sync_run_id;
         this.progressMonitor.start((status) => {
@@ -209,6 +227,34 @@ class OdooSyncApp {
       } catch (error) {
         this.showError(error.message);
       }
+    });
+  }
+
+  /**
+   * Load schedule tab controls
+   */
+  async loadScheduleTab() {
+    const container = document.getElementById('schedule-container');
+    if (!container) return;
+
+    const html = await this.scheduleEditor.load();
+    container.innerHTML = html;
+    this.scheduleEditor.attachHandlers(async () => {
+      await this.loadScheduleTab();
+    });
+  }
+
+  /**
+   * Load history tab data
+   */
+  async loadHistoryTab() {
+    const container = document.getElementById('history-container');
+    if (!container) return;
+
+    const html = await this.historyTable.load();
+    container.innerHTML = html;
+    this.historyTable.attachHandlers(async () => {
+      await this.loadHistoryTab();
     });
   }
 
@@ -255,6 +301,8 @@ class OdooSyncApp {
     await this.loadConfigTab();
     await this.loadPreviewTab();
     await this.loadSyncTab();
+    await this.loadScheduleTab();
+    await this.loadHistoryTab();
   }
 
   /**

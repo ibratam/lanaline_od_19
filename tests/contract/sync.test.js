@@ -135,6 +135,13 @@ describe('Synchronization API Contract Tests', () => {
 
       // Request should be accepted structurally
       expect([200, 400, 500]).toContain(response.status);
+
+      if (response.status === 200) {
+        const models = response.body.models || [];
+        const allowed = new Set(['res.partner', 'product.product']);
+        const invalid = models.find(model => !allowed.has(model.model));
+        expect(invalid).toBeUndefined();
+      }
     });
   });
 
@@ -186,6 +193,26 @@ describe('Synchronization API Contract Tests', () => {
       expect(response.status).toBe(202);
       expect(response.body).toHaveProperty('sync_run_id');
       expect(response.body.status).toBe('running');
+    });
+
+    it('should accept model_filter for execute', async () => {
+      const response = await request(app)
+        .post('/api/sync/execute')
+        .send({
+          source_db_id: sourceDbId,
+          target_db_id: targetDbId,
+          model_filter: ['res.partner']
+        });
+
+      expect(response.status).toBe(202);
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+      const statusResponse = await request(app)
+        .get('/api/sync/status');
+
+      if (statusResponse.body.current_model) {
+        expect(['res.partner']).toContain(statusResponse.body.current_model);
+      }
     });
   });
 

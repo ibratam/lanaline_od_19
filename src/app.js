@@ -7,7 +7,13 @@ import { errorHandler } from './api/middleware/errorHandler.js';
 import { requestLogger } from './api/middleware/requestLogger.js';
 import createConfigRouter from './api/routes/config.js';
 import createSyncRouter from './api/routes/sync.js';
+import createScheduleRouter from './api/routes/schedule.js';
+import createHistoryRouter from './api/routes/history.js';
 import ConfigManager from './services/ConfigManager.js';
+import ScheduleManager from './services/ScheduleManager.js';
+import HistoryLogger from './services/HistoryLogger.js';
+import DataPreserver from './services/DataPreserver.js';
+import NotificationService from './services/NotificationService.js';
 
 // Load environment variables
 dotenv.config();
@@ -33,6 +39,12 @@ export function createApp(db) {
     configManager: new ConfigManager(db)
   };
 
+  services.historyLogger = new HistoryLogger(db);
+  services.dataPreserver = new DataPreserver();
+  services.notificationService = new NotificationService();
+  services.scheduleManager = new ScheduleManager(db, services);
+  services.scheduleManager.startScheduler();
+
   // Health check endpoint
   app.get('/api/health', (req, res) => {
     res.json({
@@ -45,10 +57,10 @@ export function createApp(db) {
   // API Routes
   app.use('/api/config', createConfigRouter(db, services));
   app.use('/api/sync', createSyncRouter(db, services));
+  app.use('/api/schedule', createScheduleRouter(db, services));
+  app.use('/api/history', createHistoryRouter(db, services));
 
-  // TODO: Add more API routes
-  // - schedule.js for scheduling
-  // - history.js for audit logs
+  // TODO: Add more API routes if needed
 
   // Error handling middleware (must be last)
   app.use(errorHandler);

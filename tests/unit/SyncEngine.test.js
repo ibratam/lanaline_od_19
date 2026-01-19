@@ -538,5 +538,27 @@ describe('SyncEngine', () => {
       expect(progressUpdates.length).toBeGreaterThan(0);
       expect(progressUpdates[0]).toHaveProperty('current_model');
     });
+
+    it('should respect model_filter when executing', async () => {
+      const progressUpdates = [];
+      const models = ['res.partner', 'product.product'];
+
+      await syncEngine.executeSync({
+        sourceClient: mockSourceClient,
+        targetClient: mockTargetClient,
+        modelFilter: models,
+        dataPreserver: {
+          prepareCreateValues: (value) => value,
+          prepareUpdateValues: (value) => value
+        },
+        mock: true,
+        progressCallback: (update) => progressUpdates.push(update)
+      });
+
+      const seenModels = new Set(progressUpdates.map(update => update.current_model).filter(Boolean));
+      models.forEach(model => {
+        expect(seenModels.has(model)).toBe(true);
+      });
+    });
   });
 });

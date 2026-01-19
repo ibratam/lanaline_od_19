@@ -140,26 +140,33 @@ export class OdooClient {
   /**
    * Search for records in a model
    */
-  async search(model, domain = [], offset = 0, limit = 0) {
+  async search(model, domain = [], offset = 0, limit = 0, modelFilter = null) {
     try {
       if (!this.authenticated) {
         await this.authenticate();
       }
 
+      if (Array.isArray(modelFilter) && modelFilter.length > 0 && !modelFilter.includes(model)) {
+        return [];
+      }
+
       logger.debug(`Searching ${model} with domain: ${JSON.stringify(domain)}`);
 
       const result = await this.call('object.execute_kw', {
-        database: this.database,
-        uid: this.uid,
-        password: this.password,
-        model,
-        method: 'search',
-        args: [domain],
-        kwargs: {
-          offset: offset,
-          limit: limit || 0,
-          order: 'id desc'
-        }
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          model,
+          'search',
+          [domain],
+          {
+            offset: offset,
+            limit: limit || 0,
+            order: 'id desc'
+          }
+        ],
+        kwargs: {}
       });
 
       return result || [];
@@ -185,12 +192,15 @@ export class OdooClient {
       logger.debug(`Reading ${model} records: ${ids.length} records, ${fields.length} fields`);
 
       const result = await this.call('object.execute_kw', {
-        database: this.database,
-        uid: this.uid,
-        password: this.password,
-        model,
-        method: 'read',
-        args: [ids, fields || []],
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          model,
+          'read',
+          [ids, fields || []],
+          {}
+        ],
         kwargs: {}
       });
 
@@ -217,12 +227,15 @@ export class OdooClient {
       logger.info(`Writing to ${model} records: ${ids.length} records`);
 
       const result = await this.call('object.execute_kw', {
-        database: this.database,
-        uid: this.uid,
-        password: this.password,
-        model,
-        method: 'write',
-        args: [ids, values],
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          model,
+          'write',
+          [ids, values],
+          {}
+        ],
         kwargs: {}
       });
 
@@ -245,12 +258,15 @@ export class OdooClient {
       logger.info(`Creating new ${model} record`);
 
       const result = await this.call('object.execute_kw', {
-        database: this.database,
-        uid: this.uid,
-        password: this.password,
-        model,
-        method: 'create',
-        args: [values],
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          model,
+          'create',
+          [values],
+          {}
+        ],
         kwargs: {}
       });
 
@@ -277,12 +293,15 @@ export class OdooClient {
       logger.info(`Deleting ${model} records: ${ids.length} records`);
 
       const result = await this.call('object.execute_kw', {
-        database: this.database,
-        uid: this.uid,
-        password: this.password,
-        model,
-        method: 'unlink',
-        args: [ids],
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          model,
+          'unlink',
+          [ids],
+          {}
+        ],
         kwargs: {}
       });
 
@@ -305,16 +324,19 @@ export class OdooClient {
       logger.info('Fetching list of available models');
 
       const result = await this.call('object.execute_kw', {
-        database: this.database,
-        uid: this.uid,
-        password: this.password,
-        model: 'ir.model',
-        method: 'search_read',
-        args: [[]],
-        kwargs: {
-          fields: ['id', 'name', 'model'],
-          limit: 1000
-        }
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          'ir.model',
+          'search_read',
+          [[]],
+          {
+            fields: ['id', 'name', 'model'],
+            limit: 1000
+          }
+        ],
+        kwargs: {}
       });
 
       return result || [];
@@ -336,12 +358,15 @@ export class OdooClient {
       logger.info(`Fetching fields for model: ${model}`);
 
       const result = await this.call('object.execute_kw', {
-        database: this.database,
-        uid: this.uid,
-        password: this.password,
-        model,
-        method: 'fields_get',
-        args: [[]],
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          model,
+          'fields_get',
+          [[]],
+          {}
+        ],
         kwargs: {}
       });
 

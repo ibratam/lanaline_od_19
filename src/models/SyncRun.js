@@ -223,6 +223,11 @@ export class SyncRun {
         params.push(filters.status);
       }
 
+      if (filters.triggered_by) {
+        sql += ' AND triggered_by = ?';
+        params.push(filters.triggered_by);
+      }
+
       const stmt = this.db.prepare(sql);
       const result = stmt.get(...params);
       return result.count;

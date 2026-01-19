@@ -101,6 +101,10 @@ export function createSyncRouter(db, services) {
         model_filter
       );
 
+      preview.model_filter = Array.isArray(model_filter) && model_filter.length > 0
+        ? model_filter
+        : null;
+
       // Close clients
       await sourceClient.close();
       await targetClient.close();
