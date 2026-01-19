@@ -1,5 +1,9 @@
 import ConfigForm from './components/ConfigForm.js';
 import ConnectionsList from './components/ConnectionsList.js';
+import PreviewDisplay from './components/PreviewDisplay.js';
+import ProgressMonitor from './components/ProgressMonitor.js';
+import SyncResults from './components/SyncResults.js';
+import apiClient from './services/apiClient.js';
 
 /**
  * Main Application
@@ -8,7 +12,11 @@ class OdooSyncApp {
   constructor() {
     this.configForm = new ConfigForm();
     this.connectionsList = new ConnectionsList();
+    this.previewDisplay = new PreviewDisplay();
+    this.progressMonitor = new ProgressMonitor();
+    this.syncResults = new SyncResults();
     this.activeTab = 'config';
+    this.lastSyncRunId = null;
   }
 
   /**
@@ -18,6 +26,8 @@ class OdooSyncApp {
     try {
       this.setupTabNavigation();
       await this.loadConfigTab();
+      await this.loadPreviewTab();
+      await this.loadSyncTab();
     } catch (error) {
       console.error('Failed to initialize app:', error);
       this.showError('Failed to initialize application');
@@ -87,6 +97,122 @@ class OdooSyncApp {
   }
 
   /**
+   * Load preview tab controls
+   */
+  async loadPreviewTab() {
+    const controls = document.getElementById('preview-controls');
+    if (!controls) return;
+
+    const connections = await apiClient.getConfigs();
+    const options = this.renderConnectionOptions(connections);
+
+    controls.innerHTML = `
+      <div class="form-row">
+        <div class="form-group">
+          <label for="preview-source">Source</label>
+          <select id="preview-source">${options}</select>
+        </div>
+        <div class="form-group">
+          <label for="preview-target">Target</label>
+          <select id="preview-target">${options}</select>
+        </div>
+        <div class="form-group">
+          <button class="btn btn-primary" id="preview-btn">Generate Preview</button>
+        </div>
+      </div>
+    `;
+
+    const previewButton = document.getElementById('preview-btn');
+    previewButton?.addEventListener('click', async () => {
+      const sourceId = Number(document.getElementById('preview-source')?.value);
+      const targetId = Number(document.getElementById('preview-target')?.value);
+      const container = document.getElementById('preview-container');
+
+      if (!sourceId || !targetId || sourceId === targetId) {
+        if (container) {
+          container.innerHTML = '<div class="alert alert-warning">Select two different connections.</div>';
+        }
+        return;
+      }
+
+      const html = await this.previewDisplay.load(sourceId, targetId);
+      if (container) {
+        container.innerHTML = html;
+      }
+      this.previewDisplay.attachHandlers();
+    });
+  }
+
+  /**
+   * Load sync tab controls
+   */
+  async loadSyncTab() {
+    const controls = document.getElementById('sync-controls');
+    if (!controls) return;
+
+    const connections = await apiClient.getConfigs();
+    const options = this.renderConnectionOptions(connections);
+
+    controls.innerHTML = `
+      <div class="form-row">
+        <div class="form-group">
+          <label for="sync-source">Source</label>
+          <select id="sync-source">${options}</select>
+        </div>
+        <div class="form-group">
+          <label for="sync-target">Target</label>
+          <select id="sync-target">${options}</select>
+        </div>
+        <div class="form-group">
+          <button class="btn btn-primary" id="sync-start-btn">Start Sync</button>
+          <button class="btn btn-secondary" id="sync-rollback-btn">Rollback</button>
+        </div>
+      </div>
+    `;
+
+    const startButton = document.getElementById('sync-start-btn');
+    startButton?.addEventListener('click', async () => {
+      const sourceId = Number(document.getElementById('sync-source')?.value);
+      const targetId = Number(document.getElementById('sync-target')?.value);
+
+      if (!sourceId || !targetId || sourceId === targetId) {
+        this.showError('Select two different connections to start sync.');
+        return;
+      }
+
+      try {
+        const response = await apiClient.executeSync({
+          source_db_id: sourceId,
+          target_db_id: targetId
+        });
+        this.lastSyncRunId = response.sync_run_id;
+        this.progressMonitor.start((status) => {
+          this.syncResults.render(status.summary);
+        });
+      } catch (error) {
+        this.showError(error.message);
+      }
+    });
+
+    const rollbackButton = document.getElementById('sync-rollback-btn');
+    rollbackButton?.addEventListener('click', async () => {
+      if (!this.lastSyncRunId) {
+        this.showError('Run a synchronization before requesting a rollback.');
+        return;
+      }
+
+      try {
+        await apiClient.rollbackSync({ sync_run_id: this.lastSyncRunId });
+        this.progressMonitor.start((status) => {
+          this.syncResults.render(status.summary);
+        });
+      } catch (error) {
+        this.showError(error.message);
+      }
+    });
+  }
+
+  /**
    * Load and render configuration form
    */
   loadConfigForm(connectionId = null) {
@@ -127,6 +253,8 @@ class OdooSyncApp {
   async onConnectionSaved() {
     // Reload connections list
     await this.loadConfigTab();
+    await this.loadPreviewTab();
+    await this.loadSyncTab();
   }
 
   /**
@@ -142,6 +270,19 @@ class OdooSyncApp {
 
       setTimeout(() => alertDiv.remove(), 5000);
     }
+  }
+
+  /**
+   * Render connection <option> list
+   */
+  renderConnectionOptions(connections) {
+    if (!connections || connections.length === 0) {
+      return '<option value="">No connections available</option>';
+    }
+
+    return connections
+      .map(connection => `<option value="${connection.id}">${connection.name}</option>`)
+      .join('');
   }
 }
 

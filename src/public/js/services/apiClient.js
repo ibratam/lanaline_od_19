@@ -109,6 +109,23 @@ class APIClient {
     return this.post('/config/test', data);
   }
 
+  // Synchronization endpoints
+  async previewSync(data) {
+    return this.post('/sync/preview', data);
+  }
+
+  async executeSync(data) {
+    return this.post('/sync/execute', data);
+  }
+
+  async getSyncStatus() {
+    return this.get('/sync/status');
+  }
+
+  async rollbackSync(data) {
+    return this.post('/sync/rollback', data);
+  }
+
   // Health check
   async health() {
     return this.get('/health');

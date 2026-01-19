@@ -155,10 +155,27 @@ describe('Synchronization API Contract Tests', () => {
       expect(response.status).toBe(200);
       expect(response.body.status).toBe('idle');
     });
+
+    it('should include progress fields when sync is running', async () => {
+      await request(app)
+        .post('/api/sync/execute')
+        .send({
+          source_db_id: sourceDbId,
+          target_db_id: targetDbId
+        });
+
+      const response = await request(app)
+        .get('/api/sync/status');
+
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('current_model');
+      expect(response.body).toHaveProperty('records_processed');
+      expect(response.body).toHaveProperty('percentage');
+    });
   });
 
   describe('POST /api/sync/execute', () => {
-    it('should return not implemented error', async () => {
+    it('should start sync execution', async () => {
       const response = await request(app)
         .post('/api/sync/execute')
         .send({
@@ -166,21 +183,30 @@ describe('Synchronization API Contract Tests', () => {
           target_db_id: targetDbId
         });
 
-      // Should be 404 (not implemented yet)
-      expect(response.status).toMatch(/^(404|501)$/);
+      expect(response.status).toBe(202);
+      expect(response.body).toHaveProperty('sync_run_id');
+      expect(response.body.status).toBe('running');
     });
   });
 
   describe('POST /api/sync/rollback', () => {
-    it('should return not implemented error', async () => {
+    it('should accept rollback request', async () => {
+      const executeResponse = await request(app)
+        .post('/api/sync/execute')
+        .send({
+          source_db_id: sourceDbId,
+          target_db_id: targetDbId
+        });
+
       const response = await request(app)
         .post('/api/sync/rollback')
         .send({
-          sync_run_id: 1
+          sync_run_id: executeResponse.body.sync_run_id
         });
 
-      // Should be 404 (not implemented yet)
-      expect(response.status).toMatch(/^(404|501)$/);
+      expect(response.status).toBe(202);
+      expect(response.body).toHaveProperty('sync_run_id');
+      expect(response.body.status).toBe('rollback_started');
     });
   });
 });

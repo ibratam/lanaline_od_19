@@ -384,6 +384,14 @@ export class OdooClient {
     this.authenticated = false;
     this.uid = null;
   }
+
+  /**
+   * Close client session
+   */
+  async close() {
+    this.authenticated = false;
+    this.uid = null;
+  }
 }
 
 export default OdooClient;

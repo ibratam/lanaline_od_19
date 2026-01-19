@@ -516,4 +516,27 @@ describe('SyncEngine', () => {
       expect(preview.summary.total_conflicts).toBeGreaterThanOrEqual(0);
     });
   });
+
+  describe('executeSync()', () => {
+    it('should execute sync in mock mode and report progress', async () => {
+      const progressUpdates = [];
+      const result = await syncEngine.executeSync({
+        sourceClient: mockSourceClient,
+        targetClient: mockTargetClient,
+        modelFilter: ['res.partner'],
+        dataPreserver: {
+          prepareCreateValues: (value) => value,
+          prepareUpdateValues: (value) => value
+        },
+        mock: true,
+        progressCallback: (update) => progressUpdates.push(update)
+      });
+
+      expect(result.summary).toBeDefined();
+      expect(result.summary.total_records_created).toBeGreaterThan(0);
+      expect(result.operations.length).toBeGreaterThan(0);
+      expect(progressUpdates.length).toBeGreaterThan(0);
+      expect(progressUpdates[0]).toHaveProperty('current_model');
+    });
+  });
 });
