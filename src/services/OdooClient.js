@@ -21,14 +21,16 @@ export class OdooClient {
     try {
       const rpcPath = `${this.url}/jsonrpc`;
 
+      const args = Array.isArray(params?.args) ? params.args : [];
+      const kwargs = params?.kwargs && typeof params.kwargs === 'object' ? params.kwargs : params;
       const payload = {
         jsonrpc: '2.0',
         method: 'call',
         params: {
           service: method.split('.')[0],
           method: method.split('.')[1] || method,
-          args: [],
-          kwargs: params
+          args,
+          kwargs
         },
         id: Math.floor(Math.random() * 1000000)
       };
@@ -84,11 +86,23 @@ export class OdooClient {
     try {
       logger.info(`Authenticating with Odoo: ${this.url} (database: ${this.database})`);
 
-      const uid = await this.call('web.session.authenticate', {
-        db: this.database,
-        login: this.username,
-        password: this.password
-      });
+      let uid;
+      try {
+        uid = await this.call('common.authenticate', {
+          args: [this.database, this.username, this.password, {}],
+          kwargs: {}
+        });
+      } catch (error) {
+        if (error?.name === 'OdooRpcError' && String(error.details?.message || '').includes('KeyError')) {
+          uid = await this.call('web.session.authenticate', {
+            db: this.database,
+            login: this.username,
+            password: this.password
+          });
+        } else {
+          throw error;
+        }
+      }
 
       if (!uid || uid === false) {
         const authError = new Error('Authentication failed: Invalid credentials');
