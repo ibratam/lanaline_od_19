@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-odoo-sync-middleware`
 **Created**: 2026-01-19
-**Status**: Draft
+**Status**: Ready for Implementation
 **Input**: User description: "i want to make a middleware with web interface to syncronize two odoo 19 databases maintaining original dates and ids"
 
 ## User Scenarios & Testing *(mandatory)*
