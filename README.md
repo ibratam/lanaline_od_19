@@ -122,12 +122,15 @@ npm run lint:fix
 docker build -t odoo-sync-middleware .
 
 # Run container
-docker run -p 3000:3000 -v $(pwd)/data:/app/data odoo-sync-middleware
+docker run -p 3000:3000 \
+  -e MIDDLEWARE_SECRET_KEY=your-secret-key \
+  -v $(pwd)/data:/app/data \
+  odoo-sync-middleware
 ```
 
 Or using Docker Compose:
 ```bash
-docker-compose up -d
+MIDDLEWARE_SECRET_KEY=your-secret-key docker-compose up -d
 ```
 
 ### Linux/macOS with PM2
@@ -172,6 +175,14 @@ src/
 └── db/                     # Database schema and initialization
 ```
 
+### Data Flow
+
+1. Users configure source/target connections in the UI.
+2. Preview compares models using the SyncEngine and ConflictDetector services.
+3. Execute runs sync operations and writes audit history to SQLite.
+4. Scheduler loads enabled cron entries and triggers sync runs automatically.
+5. History exports provide CSV/JSON data for external reporting.
+
 ## Security
 
 - **Credentials**: AES-256 encryption at rest
@@ -198,6 +209,10 @@ src/
 - Consider scheduling syncs during off-peak hours
 
 ## Support
+
+## Contributing
+
+See `CONTRIBUTING.md` for setup, testing, and contribution guidelines.
 
 For issues, errors, or feature requests, please refer to the specification document or contact the development team.
 

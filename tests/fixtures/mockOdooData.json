@@ -1,0 +1,26 @@
+{
+  "models": {
+    "res.partner": [
+      {
+        "id": 1,
+        "name": "Acme Corp",
+        "create_date": "2026-01-01 00:00:00",
+        "write_date": "2026-01-02 00:00:00"
+      },
+      {
+        "id": 2,
+        "name": "Globex",
+        "create_date": "2026-01-01 00:00:00",
+        "write_date": "2026-01-03 00:00:00"
+      }
+    ],
+    "product.product": [
+      {
+        "id": 10,
+        "name": "Widget",
+        "create_date": "2026-01-01 00:00:00",
+        "write_date": "2026-01-01 00:00:00"
+      }
+    ]
+  }
+}

@@ -9,6 +9,7 @@ export class SyncEngine {
   constructor(odooClient) {
     this.odooClient = odooClient;
     this.conflictDetector = new ConflictDetector();
+    this.modelFieldCache = new Map();
   }
 
   /**
@@ -54,10 +55,17 @@ export class SyncEngine {
           preview.summary.total_records_to_delete += modelComparison.to_delete.count;
           preview.summary.total_conflicts += modelComparison.conflicts.length;
         } catch (error) {
+          const accessDenied = this.isAccessDeniedError(error);
+          const skipReason = accessDenied
+            ? 'Skipped: access denied'
+            : `Error: ${error.message}`;
+
           logger.warn(`Error comparing model ${model}: ${error.message}`);
           preview.models.push({
             model,
-            error: error.message,
+            skipped: accessDenied,
+            skip_reason: accessDenied ? skipReason : null,
+            error: accessDenied ? null : error.message,
             to_create: { count: 0, records: [] },
             to_update: { count: 0, records: [] },
             to_delete: { count: 0, records: [] },
@@ -403,15 +411,16 @@ export class SyncEngine {
       const values = dataPreserver
         ? dataPreserver.prepareCreateValues(record.data)
         : record.data;
+      const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
 
       if (!mock && targetClient) {
-        await targetClient.create(model, values);
+        await targetClient.create(model, filteredValues);
       }
 
       rollbackOperations.created.push({
         model,
         record_id: record.id,
-        values
+        values: filteredValues
       });
       count += 1;
     }
@@ -426,9 +435,10 @@ export class SyncEngine {
       const values = dataPreserver
         ? dataPreserver.prepareUpdateValues(record.source)
         : record.source;
+      const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
 
       if (!mock && targetClient) {
-        await targetClient.write(model, record.id, values);
+        await targetClient.write(model, record.id, filteredValues);
       }
 
       rollbackOperations.updated.push({
@@ -495,6 +505,54 @@ export class SyncEngine {
 
   delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async filterWritableFields(model, values, targetClient, mock) {
+    if (mock || !targetClient || !values || typeof values !== 'object') {
+      return values;
+    }
+
+    const writableFields = await this.getWritableFields(targetClient, model);
+    if (!writableFields || writableFields.size === 0) {
+      return values;
+    }
+
+    const filtered = {};
+    for (const [key, value] of Object.entries(values)) {
+      if (writableFields.has(key)) {
+        filtered[key] = value;
+      }
+    }
+
+    return filtered;
+  }
+
+  async getWritableFields(targetClient, model) {
+    if (this.modelFieldCache.has(model)) {
+      return this.modelFieldCache.get(model);
+    }
+
+    try {
+      const fields = await targetClient.getModelFields(model);
+      const writable = new Set(
+        Object.entries(fields || {})
+          .filter(([, meta]) => !meta?.readonly)
+          .map(([name]) => name)
+      );
+      this.modelFieldCache.set(model, writable);
+      return writable;
+    } catch (error) {
+      logger.warn(`Failed to load fields for ${model}: ${error.message}`);
+      this.modelFieldCache.set(model, null);
+      return null;
+    }
+  }
+
+  isAccessDeniedError(error) {
+    const name = error?.details?.data?.name || '';
+    const message = error?.details?.data?.message || error?.message || '';
+    return name === 'odoo.exceptions.AccessError'
+      || /not allowed to access/i.test(message);
   }
 
   /**

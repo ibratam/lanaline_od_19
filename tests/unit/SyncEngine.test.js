@@ -1,5 +1,4 @@
 import { SyncEngine } from '../../src/services/SyncEngine.js';
-import { ConflictDetector } from '../../src/services/ConflictDetector.js';
 
 describe('SyncEngine', () => {
   let syncEngine;

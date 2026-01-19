@@ -341,6 +341,41 @@ textarea {
   align-items: center;
 }
 
+.model-selector-search {
+  min-width: 220px;
+}
+
+.model-selector-list {
+  margin-top: 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px 12px;
+}
+
+.model-selector-item {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 4px 8px;
+  align-items: start;
+  font-size: 13px;
+}
+
+.model-selector-name {
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.model-selector-desc {
+  grid-column: 2 / -1;
+  color: #6b7280;
+  font-size: 12px;
+}
+
 .modal {
   position: fixed;
   inset: 0;

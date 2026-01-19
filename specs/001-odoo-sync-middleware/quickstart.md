@@ -49,15 +49,7 @@ DB_PATH=./data/sync.db
 LOG_LEVEL=info
 ```
 
-### 3. Initialize Database
-
-```bash
-npm run db:migrate
-```
-
-This creates the SQLite database schema with all tables.
-
-### 4. Start the Middleware
+### 3. Start the Middleware
 
 ```bash
 npm start
@@ -70,7 +62,7 @@ You should see:
 [2026-01-19 10:15:30] INFO: Scheduler initialized with 0 active schedules
 ```
 
-### 5. Access the Web Interface
+### 4. Access the Web Interface
 
 Open your browser and navigate to:
 
@@ -197,6 +189,28 @@ Should show:
 ```
 
 ### 4. Access via Browser
+
+Open your browser to:
+
+```
+http://localhost:3000
+```
+
+---
+
+## Troubleshooting
+
+### Database Not Initializing
+- Confirm `DB_PATH` points to a writable directory
+- Ensure the `data/` directory exists or is writable by the process
+
+### Scheduler Not Running
+- Check `NODE_ENV` and `LOG_LEVEL` in `.env`
+- Verify schedule cron expressions are valid 5-part strings
+
+### API Errors
+- Inspect `data/error.log` for details
+- Ensure `MIDDLEWARE_SECRET_KEY` is at least 32 characters
 
 Navigate to `http://your-server-ip:3000`
 

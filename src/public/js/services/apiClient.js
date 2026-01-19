@@ -126,6 +126,11 @@ class APIClient {
     return this.post('/sync/rollback', data);
   }
 
+  async getSyncModels(sourceDbId) {
+    const query = new URLSearchParams({ source_db_id: String(sourceDbId) });
+    return this.get(`/sync/models?${query.toString()}`);
+  }
+
   // Schedule endpoints
   async getSchedules() {
     return this.get('/schedule');

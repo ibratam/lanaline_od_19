@@ -133,6 +133,12 @@ class OdooSyncApp {
     `;
 
     this.previewModelSelector.attachHandlers('preview-models');
+    await this.loadModelsForSelector('preview-models', 'preview-source', this.previewModelSelector);
+
+    const previewSource = document.getElementById('preview-source');
+    previewSource?.addEventListener('change', async () => {
+      await this.loadModelsForSelector('preview-models', 'preview-source', this.previewModelSelector);
+    });
 
     const previewButton = document.getElementById('preview-btn');
     previewButton?.addEventListener('click', async () => {
@@ -185,6 +191,12 @@ class OdooSyncApp {
     `;
 
     this.syncModelSelector.attachHandlers('sync-models');
+    await this.loadModelsForSelector('sync-models', 'sync-source', this.syncModelSelector);
+
+    const syncSource = document.getElementById('sync-source');
+    syncSource?.addEventListener('change', async () => {
+      await this.loadModelsForSelector('sync-models', 'sync-source', this.syncModelSelector);
+    });
 
     const startButton = document.getElementById('sync-start-btn');
     startButton?.addEventListener('click', async () => {
@@ -256,6 +268,22 @@ class OdooSyncApp {
     this.historyTable.attachHandlers(async () => {
       await this.loadHistoryTab();
     });
+  }
+
+  async loadModelsForSelector(prefix, sourceSelectId, selector) {
+    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
+    if (!sourceId) {
+      selector.setStatus(prefix, 'Select a source connection to load models.');
+      return;
+    }
+
+    selector.setStatus(prefix, 'Loading models...');
+    try {
+      const response = await apiClient.getSyncModels(sourceId);
+      selector.setModels(prefix, response.models || []);
+    } catch (error) {
+      selector.setStatus(prefix, error?.data?.message || 'Failed to load models.');
+    }
   }
 
   /**

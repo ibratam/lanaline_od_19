@@ -10,7 +10,7 @@ import { validateOdooUrl, validateDatabaseName, validateRequiredFields } from '.
 
 export function createConfigRouter(db, services) {
   const router = express.Router();
-  const { configManager, odooClient } = services;
+  const { configManager } = services;
   const parseConnectionId = (value) => {
     const id = Number(value);
     if (!Number.isInteger(id) || id <= 0) {

@@ -1,0 +1,17 @@
+{
+  "source": {
+    "database_name": "source_db",
+    "models": ["res.partner", "product.product"],
+    "record_counts": {
+      "res.partner": 2,
+      "product.product": 1
+    }
+  },
+  "target": {
+    "database_name": "target_db",
+    "models": ["res.partner"],
+    "record_counts": {
+      "res.partner": 1
+    }
+  }
+}

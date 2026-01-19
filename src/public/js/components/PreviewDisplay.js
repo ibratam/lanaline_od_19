@@ -91,7 +91,15 @@ export class PreviewDisplay {
     `;
 
     for (const model of this.preview.models) {
-      if (model.error) {
+      if (model.skipped) {
+        html += `
+          <tr>
+            <td><strong>${this.escapeHtml(model.model)}</strong></td>
+            <td colspan="4" style="color: #6b7280;">${this.escapeHtml(model.skip_reason || 'Skipped')}</td>
+            <td>—</td>
+          </tr>
+        `;
+      } else if (model.error) {
         html += `
           <tr>
             <td><strong>${this.escapeHtml(model.model)}</strong></td>

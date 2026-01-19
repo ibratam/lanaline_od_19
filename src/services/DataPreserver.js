@@ -27,8 +27,7 @@ export class DataPreserver {
    */
   prepareCreateValues(record) {
     const base = this.stripSystemFields(record);
-    const metadata = this.preserveRecordMetadata(record);
-    return this.applyMetadata(base, metadata);
+    return this.normalizeValues(base);
   }
 
   /**
@@ -36,8 +35,7 @@ export class DataPreserver {
    */
   prepareUpdateValues(record) {
     const base = this.stripSystemFields(record);
-    const metadata = this.preserveRecordMetadata(record);
-    return this.applyMetadata(base, metadata);
+    return this.normalizeValues(base);
   }
 
   /**
@@ -50,24 +48,26 @@ export class DataPreserver {
 
     const sanitized = { ...record };
     delete sanitized.__last_update;
+    delete sanitized.id;
+    delete sanitized.create_date;
+    delete sanitized.write_date;
+    delete sanitized.display_name;
     return sanitized;
   }
 
   /**
-   * Apply preserved metadata to outgoing values
+   * Normalize values for write operations
    */
-  applyMetadata(values, metadata) {
+  normalizeValues(values) {
     const result = { ...(values || {}) };
 
-    if (metadata) {
-      if (metadata.id !== null && metadata.id !== undefined) {
-        result.id = metadata.id;
-      }
-      if (metadata.create_date) {
-        result.create_date = metadata.create_date;
-      }
-      if (metadata.write_date) {
-        result.write_date = metadata.write_date;
+    for (const [key, value] of Object.entries(result)) {
+      if (Array.isArray(value)) {
+        if (value.length === 2 && typeof value[1] === 'string') {
+          result[key] = value[0] || false;
+        } else {
+          delete result[key];
+        }
       }
     }
 

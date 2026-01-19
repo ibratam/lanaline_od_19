@@ -36,6 +36,42 @@ export function createSyncRouter(db, services) {
   const syncRunModel = new SyncRun(db.getDB());
 
   /**
+   * GET /api/sync/models
+   * List available models for a source connection
+   */
+  router.get('/models', asyncHandler(async (req, res) => {
+    const sourceDbId = Number(req.query.source_db_id);
+    if (!Number.isInteger(sourceDbId) || sourceDbId <= 0) {
+      throw new ValidationError('source_db_id is required');
+    }
+
+    const sourceConnection = await configManager.getConnectionWithPassword(sourceDbId);
+    if (!sourceConnection) {
+      throw new NotFoundError(`Source database ${sourceDbId} not found`);
+    }
+
+    const sourceClient = new OdooClient(
+      sourceConnection.url,
+      sourceConnection.database_name,
+      sourceConnection.username,
+      sourceConnection.password
+    );
+
+    try {
+      await sourceClient.authenticate();
+      const models = await sourceClient.getModels();
+      const normalized = models.map(model => ({
+        id: model.id,
+        name: model.name,
+        model: model.model
+      }));
+      res.json({ models: normalized });
+    } finally {
+      await sourceClient.close();
+    }
+  }));
+
+  /**
    * POST /api/sync/preview
    * Generate preview of what will be synchronized
    */

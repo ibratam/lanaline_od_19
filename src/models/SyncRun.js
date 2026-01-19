@@ -88,17 +88,19 @@ export class SyncRun {
         params.push(filters.triggered_by);
       }
 
+      sql += ' ORDER BY created_at DESC';
+
       if (filters.limit) {
         sql += ' LIMIT ?';
         params.push(filters.limit);
+      } else if (filters.offset) {
+        sql += ' LIMIT -1';
       }
 
       if (filters.offset) {
         sql += ' OFFSET ?';
         params.push(filters.offset);
       }
-
-      sql += ' ORDER BY created_at DESC';
 
       const stmt = this.db.prepare(sql);
       return stmt.all(...params);

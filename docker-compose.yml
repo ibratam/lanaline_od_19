@@ -1,0 +1,17 @@
+version: "3.9"
+
+services:
+  odoo-sync:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      LOG_LEVEL: info
+      MIDDLEWARE_SECRET_KEY: ${MIDDLEWARE_SECRET_KEY}
+      DB_PATH: /app/data/middleware.db
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
