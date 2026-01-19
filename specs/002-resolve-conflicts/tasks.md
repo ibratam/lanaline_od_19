@@ -96,7 +96,7 @@ Verify all stated assumptions (spec.md lines 160-167) are true in the current co
 
 ---
 
-- [ ] T000 Validate assumptions by running existing SyncEngine against test Odoo instance and verify: (1) conflict detection produces ≥10 test conflicts in sync_conflicts table, (2) both versions (source_value, target_value) populated as JSON, (3) can differentiate data vs structural conflicts, (4) query by model_name/state/record_id successful; document findings in assumptions-validation.md in specs/002-resolve-conflicts/; BLOCK all subsequent phases if any assumption fails
+- [x] T000 Validate assumptions by running existing SyncEngine against test Odoo instance and verify: (1) conflict detection produces ≥10 test conflicts in sync_conflicts table, (2) both versions (source_value, target_value) populated as JSON, (3) can differentiate data vs structural conflicts, (4) query by model_name/state/record_id successful; document findings in assumptions-validation.md in specs/002-resolve-conflicts/; BLOCK all subsequent phases if any assumption fails
 
 ---
 
@@ -112,19 +112,19 @@ Define PropTypes contracts for all frontend components before implementation beg
 
 ---
 
-- [ ] T001b [P] Define PropTypes for ConflictsList in public/js/components/ConflictsList.js: props {conflicts: Array<Conflict>, onFilter: Function, onSelectConflict: Function}; default filters={state: 'detected', model: null}; include JSDoc @param documentation
+- [x] T001b [P] Define PropTypes for ConflictsList in public/js/components/ConflictsList.propTypes.js: props {conflicts: Array<Conflict>, onFilter: Function, onSelectConflict: Function}; default filters={state: 'detected', model: null}; include JSDoc @param documentation
 
-- [ ] T001c [P] Define PropTypes for ConflictDetail in public/js/components/ConflictDetail.js: props {conflict: Conflict, onClose: Function}; required for source_value, target_value, metadata display; include JSDoc @param documentation
+- [x] T001c [P] Define PropTypes for ConflictDetail in public/js/components/ConflictDetail.propTypes.js: props {conflict: Conflict, onClose: Function}; required for source_value, target_value, metadata display; include JSDoc @param documentation
 
-- [ ] T001d [P] Define PropTypes for ResolutionForm in public/js/components/ResolutionForm.js: props {conflict: Conflict, onResolve: Function(chosenVersion), onError: Function(error)}; include JSDoc @param documentation and usage example
+- [x] T001d [P] Define PropTypes for ResolutionForm in public/js/components/ResolutionForm.propTypes.js: props {conflict: Conflict, onResolve: Function(chosenVersion), onError: Function(error)}; include JSDoc @param documentation and usage example
 
-- [ ] T001e [P] Define PropTypes for BulkResolutionDialog in public/js/components/BulkResolutionDialog.js: props {onApplyRule: Function(rule), onPreview: Function(rule)}; rule shape {model: string, field?: string, action: 'keep_local' | 'keep_odoo'}; include JSDoc
+- [x] T001e [P] Define PropTypes for BulkResolutionDialog in public/js/components/BulkResolutionDialog.propTypes.js: props {onApplyRule: Function(rule), onPreview: Function(rule)}; rule shape {model: string, field?: string, action: 'keep_local' | 'keep_odoo'}; include JSDoc
 
-- [ ] T001f [P] Define PropTypes for SyncHistoryPanel in public/js/components/SyncHistoryPanel.js: props {operations: Array<SyncOperation>, onFilterDateRange: Function(start, end), onFilterModel: Function(model)}; include JSDoc @param documentation
+- [x] T001f [P] Define PropTypes for SyncHistoryPanel in public/js/components/SyncHistoryPanel.propTypes.js: props {operations: Array<SyncOperation>, onFilterDateRange: Function(start, end), onFilterModel: Function(model)}; include JSDoc @param documentation
 
-- [ ] T001g [P] Define PropTypes for NotificationPanel in public/js/components/NotificationPanel.js: props {notifications: Array<{type: 'error'|'info'|'success', message: string, errorCode?: string}>}; include JSDoc @param documentation
+- [x] T001g [P] Define PropTypes for NotificationPanel in public/js/components/NotificationPanel.propTypes.js: props {notifications: Array<{type: 'error'|'info'|'success', message: string, errorCode?: string}>}; include JSDoc @param documentation
 
-- [ ] T001h [P] Define PropTypes for ConflictLockWarning in public/js/components/ConflictLockWarning.js: props {lockedBy: number|null, lockedAt: ISO8601|null, onRetry: Function}; include JSDoc @param documentation
+- [x] T001h [P] Define PropTypes for ConflictLockWarning in public/js/components/ConflictLockWarning.propTypes.js: props {lockedBy: number|null, lockedAt: ISO8601|null, onRetry: Function}; include JSDoc @param documentation
 
 ---
 
