@@ -1,0 +1,720 @@
+openapi: 3.0.0
+info:
+  title: Odoo 19 Database Synchronization Middleware API
+  description: REST API for managing Odoo database synchronization
+  version: 1.0.0
+  contact:
+    name: Odoo Sync Team
+
+servers:
+  - url: http://localhost:3000/api
+    description: Local development
+  - url: /api
+    description: Production (relative URL)
+
+tags:
+  - name: Configuration
+    description: Database connection configuration
+  - name: Synchronization
+    description: Manual sync execution and monitoring
+  - name: Scheduling
+    description: Recurring sync schedules
+  - name: History
+    description: Sync history and audit logs
+
+paths:
+  /config:
+    get:
+      summary: Get all configured database connections
+      tags:
+        - Configuration
+      responses:
+        '200':
+          description: List of database connections
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DatabaseConnection'
+
+    post:
+      summary: Save database connection configuration
+      tags:
+        - Configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseConnectionInput'
+      responses:
+        '201':
+          description: Configuration saved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseConnection'
+        '400':
+          description: Invalid input
+        '409':
+          description: Connection already exists
+        '500':
+          description: Server error
+
+  /config/{id}:
+    get:
+      summary: Get specific database configuration
+      tags:
+        - Configuration
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Database connection details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseConnection'
+        '404':
+          description: Configuration not found
+
+    put:
+      summary: Update database configuration
+      tags:
+        - Configuration
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseConnectionInput'
+      responses:
+        '200':
+          description: Configuration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatabaseConnection'
+
+    delete:
+      summary: Delete database configuration
+      tags:
+        - Configuration
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Configuration deleted
+        '404':
+          description: Configuration not found
+        '409':
+          description: Cannot delete - active schedules reference this
+
+  /config/test:
+    post:
+      summary: Test database connectivity without saving
+      tags:
+        - Configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DatabaseConnectionInput'
+      responses:
+        '200':
+          description: Connection test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [connected, failed]
+                  message:
+                    type: string
+        '400':
+          description: Invalid input
+
+  /sync/preview:
+    post:
+      summary: Generate synchronization preview without making changes
+      tags:
+        - Synchronization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source_db_id:
+                  type: integer
+                target_db_id:
+                  type: integer
+                model_filter:
+                  type: array
+                  items:
+                    type: string
+                  nullable: true
+              required:
+                - source_db_id
+                - target_db_id
+      responses:
+        '200':
+          description: Preview of sync changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncPreview'
+        '400':
+          description: Invalid databases or configuration
+        '408':
+          description: Preview timeout (databases too large)
+
+  /sync/execute:
+    post:
+      summary: Execute synchronization (start manual sync)
+      tags:
+        - Synchronization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                source_db_id:
+                  type: integer
+                target_db_id:
+                  type: integer
+                model_filter:
+                  type: array
+                  items:
+                    type: string
+                  nullable: true
+              required:
+                - source_db_id
+                - target_db_id
+      responses:
+        '202':
+          description: Synchronization started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sync_run_id:
+                    type: integer
+                  status:
+                    type: string
+                    enum: [pending, running]
+                  message:
+                    type: string
+        '400':
+          description: Invalid configuration
+        '409':
+          description: Sync already running
+
+  /sync/status:
+    get:
+      summary: Poll current synchronization status and progress
+      tags:
+        - Synchronization
+      parameters:
+        - in: query
+          name: sync_run_id
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Current sync status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncStatus'
+        '404':
+          description: Sync run not found
+
+  /sync/rollback:
+    post:
+      summary: Rollback the last completed synchronization
+      tags:
+        - Synchronization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sync_run_id:
+                  type: integer
+              required:
+                - sync_run_id
+      responses:
+        '200':
+          description: Rollback completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [rolled_back]
+                  message:
+                    type: string
+        '400':
+          description: Cannot rollback (not in rollback-eligible state)
+        '404':
+          description: Sync run not found
+
+  /schedule:
+    get:
+      summary: List all synchronization schedules
+      tags:
+        - Scheduling
+      responses:
+        '200':
+          description: List of schedules
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SyncSchedule'
+
+    post:
+      summary: Create a new synchronization schedule
+      tags:
+        - Scheduling
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncScheduleInput'
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncSchedule'
+        '400':
+          description: Invalid cron expression or configuration
+
+  /schedule/{id}:
+    get:
+      summary: Get specific schedule details
+      tags:
+        - Scheduling
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Schedule details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncSchedule'
+
+    put:
+      summary: Update schedule
+      tags:
+        - Scheduling
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncScheduleInput'
+      responses:
+        '200':
+          description: Schedule updated
+
+    delete:
+      summary: Delete schedule
+      tags:
+        - Scheduling
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '204':
+          description: Schedule deleted
+
+  /schedule/{id}/toggle:
+    post:
+      summary: Enable or disable a schedule
+      tags:
+        - Scheduling
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabled:
+                  type: boolean
+              required:
+                - enabled
+      responses:
+        '200':
+          description: Schedule enabled/disabled
+
+  /history:
+    get:
+      summary: Get synchronization history with filtering
+      tags:
+        - History
+      parameters:
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            default: 50
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            default: 0
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, rolled_back]
+        - in: query
+          name: triggered_by
+          schema:
+            type: string
+            enum: [manual, scheduled]
+      responses:
+        '200':
+          description: History records
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total:
+                    type: integer
+                  records:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SyncRun'
+
+  /history/{id}:
+    get:
+      summary: Get specific sync run details with conflicts and errors
+      tags:
+        - History
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Detailed sync run information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncRunDetailed'
+
+  /history/export:
+    get:
+      summary: Export sync history as CSV or JSON
+      tags:
+        - History
+      parameters:
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [csv, json]
+            default: csv
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Exported history
+          content:
+            text/csv:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+components:
+  schemas:
+    DatabaseConnection:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        url:
+          type: string
+        database:
+          type: string
+        username:
+          type: string
+        connection_type:
+          type: string
+          enum: [source, target]
+        status:
+          type: string
+          enum: [connected, failed, untested]
+        status_message:
+          type: string
+        last_checked_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DatabaseConnectionInput:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        database:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+      required:
+        - name
+        - url
+        - database
+        - username
+        - password
+
+    SyncPreview:
+      type: object
+      properties:
+        source_db_id:
+          type: integer
+        target_db_id:
+          type: integer
+        total_records:
+          type: integer
+        records_to_create:
+          type: integer
+        records_to_update:
+          type: integer
+        records_to_delete:
+          type: integer
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              model:
+                type: string
+              record_id:
+                type: integer
+              conflict_type:
+                type: string
+              source_value:
+                type: object
+              target_value:
+                type: object
+        conflicts_count:
+          type: integer
+        preview_generated_at:
+          type: string
+          format: date-time
+
+    SyncStatus:
+      type: object
+      properties:
+        sync_run_id:
+          type: integer
+        status:
+          type: string
+          enum: [pending, running, completed, failed, rolled_back]
+        progress:
+          type: object
+          properties:
+            current_model:
+              type: string
+            records_processed:
+              type: integer
+            total_records:
+              type: integer
+            percentage_complete:
+              type: number
+            estimated_seconds_remaining:
+              type: integer
+        records:
+          type: object
+          properties:
+            created:
+              type: integer
+            updated:
+              type: integer
+            deleted:
+              type: integer
+            failed:
+              type: integer
+        errors:
+          type: array
+          items:
+            type: object
+
+    SyncRun:
+      type: object
+      properties:
+        id:
+          type: integer
+        status:
+          type: string
+        triggered_by:
+          type: string
+          enum: [manual, scheduled]
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        total_duration_seconds:
+          type: integer
+        records_created:
+          type: integer
+        records_updated:
+          type: integer
+        records_deleted:
+          type: integer
+        error_count:
+          type: integer
+
+    SyncRunDetailed:
+      allOf:
+        - $ref: '#/components/schemas/SyncRun'
+        - type: object
+          properties:
+            conflicts:
+              type: array
+              items:
+                type: object
+            errors:
+              type: array
+              items:
+                type: object
+            operations:
+              type: array
+              items:
+                type: object
+
+    SyncSchedule:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        source_db_id:
+          type: integer
+        target_db_id:
+          type: integer
+        frequency:
+          type: string
+        frequency_readable:
+          type: string
+        timezone:
+          type: string
+        enabled:
+          type: boolean
+        next_run_at:
+          type: string
+          format: date-time
+        last_run_at:
+          type: string
+          format: date-time
+        notification_email:
+          type: string
+          format: email
+
+    SyncScheduleInput:
+      type: object
+      properties:
+        name:
+          type: string
+        source_db_id:
+          type: integer
+        target_db_id:
+          type: integer
+        frequency:
+          type: string
+          description: 'Valid cron expression (5-part format), e.g. "0 0 * * *"'
+        timezone:
+          type: string
+          description: 'IANA timezone name, e.g. "America/New_York"'
+        model_filter:
+          type: array
+          items:
+            type: string
+          nullable: true
+        notification_email:
+          type: string
+          format: email
+          nullable: true
+      required:
+        - name
+        - source_db_id
+        - target_db_id
+        - frequency
