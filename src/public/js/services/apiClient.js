@@ -169,6 +169,37 @@ class APIClient {
     return `${this.baseURL}/history/export${suffix}`;
   }
 
+  // Conflict endpoints
+  async getConflicts(params = {}) {
+    const query = new URLSearchParams(params);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.get(`/conflicts${suffix}`);
+  }
+
+  async getConflict(id) {
+    return this.get(`/conflicts/${id}`);
+  }
+
+  async lockConflict(id, data) {
+    return this.post(`/conflicts/${id}/lock`, data);
+  }
+
+  async unlockConflict(id) {
+    return this.delete(`/conflicts/${id}/lock`);
+  }
+
+  async resolveConflict(id, data) {
+    return this.post(`/conflicts/${id}/resolve`, data);
+  }
+
+  async applyConflict(id) {
+    return this.post(`/conflicts/${id}/apply`);
+  }
+
+  async retryConflict(id) {
+    return this.post(`/conflicts/${id}/retry`);
+  }
+
   // Health check
   async health() {
     return this.get('/health');

@@ -141,13 +141,13 @@ Write failing test suites for core services before implementation begins (TDD pr
 
 ---
 
-- [ ] T005a [P] Write failing unit tests for ConflictResolver in tests/unit/ConflictResolver.test.js with test cases: (1) resolve() transitions state detected→resolved, (2) prevent duplicate resolution on already-resolved conflict, (3) categorize errors into UC/SE/UR; ensure ALL tests FAIL before T006 implementation begins
+- [x] T005a [P] Write failing unit tests for ConflictResolver in tests/unit/ConflictResolver.test.js with test cases: (1) resolve() transitions state detected→resolved, (2) prevent duplicate resolution on already-resolved conflict, (3) categorize errors into UC/SE/UR; ensure ALL tests FAIL before T006 implementation begins
 
-- [ ] T005b [P] Write failing unit tests for RetryManager in tests/unit/RetryManager.test.js with test cases: (1) applyWithRetry() retries exactly 3 times with exponential backoff delays [5000, 10000, 20000]ms, (2) after 3 failures move conflict to 'needs_manual_review' state, (3) categorizeError() returns correct category (user_correctable|system|unrecoverable); ensure ALL tests FAIL before T007 implementation
+- [x] T005b [P] Write failing unit tests for RetryManager in tests/unit/RetryManager.test.js with test cases: (1) applyWithRetry() retries exactly 3 times with exponential backoff delays [5000, 10000, 20000]ms, (2) after 3 failures move conflict to 'needs_manual_review' state, (3) categorizeError() returns correct category (user_correctable|system|unrecoverable); ensure ALL tests FAIL before T007 implementation
 
-- [ ] T005c [P] Write failing unit tests for BulkResolutionEngine in tests/unit/BulkResolutionEngine.test.js with test cases: (1) preview() returns matched conflict count without applying changes, (2) apply() resolves all matching conflicts atomically (all-or-nothing), (3) rule validation enforces {model: string, field?: string, action: 'keep_local'|'keep_odoo'}; ensure ALL tests FAIL before T008 implementation
+- [x] T005c [P] Write failing unit tests for BulkResolutionEngine in tests/unit/BulkResolutionEngine.test.js with test cases: (1) preview() returns matched conflict count without applying changes, (2) apply() resolves all matching conflicts atomically (all-or-nothing), (3) rule validation enforces {model: string, field?: string, action: 'keep_local'|'keep_odoo'}; ensure ALL tests FAIL before T008 implementation
 
-- [ ] T005d [P] Write failing contract tests for conflict API endpoints in tests/contract/conflicts-api.test.js with test cases: (1) GET /api/conflicts returns paginated list with cursor, (2) GET /:id returns full conflict schema with resolution/lock status, (3) POST /:id/lock prevents concurrent resolution (409 if locked), (4) POST /:id/apply handles retries returning 202 then 200/409; ensure ALL tests FAIL before T012-T027 implementation
+- [x] T005d [P] Write failing contract tests for conflict API endpoints in tests/contract/conflicts-api.test.js with test cases: (1) GET /api/conflicts returns paginated list with cursor, (2) GET /:id returns full conflict schema with resolution/lock status, (3) POST /:id/lock prevents concurrent resolution (409 if locked), (4) POST /:id/apply handles retries returning 202 then 200/409; ensure ALL tests FAIL before T012-T027 implementation
 
 ---
 
@@ -163,15 +163,15 @@ Initialize database schema, create models, and register routes for conflict mana
 
 ---
 
-- [ ] T001 Create database migrations in src/db/migrations/ `001_add_conflict_state.js`, `002_create_conflict_resolutions.js`, `003_create_conflict_locks.js`
+- [x] T001 Create database migrations in src/db/migrations/ `001_add_conflict_state.js`, `002_create_conflict_resolutions.js`, `003_create_conflict_locks.js`
 
-- [ ] T002 [P] Create SyncConflict model extension in src/models/SyncConflict.js with methods: `getByState()`, `updateState()`, `getLocked()`, `addStateColumn()`
+- [x] T002 [P] Create SyncConflict model extension in src/models/SyncConflict.js with methods: `getByState()`, `updateState()`, `getLocked()`, `addStateColumn()`
 
-- [ ] T003 [P] Create ConflictResolution model in src/models/ConflictResolution.js with methods: `create()`, `getByConflictId()`, `updateApplied()`, `updateError()`, `updateRetry()`
+- [x] T003 [P] Create ConflictResolution model in src/models/ConflictResolution.js with methods: `create()`, `getByConflictId()`, `updateApplied()`, `updateError()`, `updateRetry()`
 
-- [ ] T004 [P] Create ConflictLock model in src/models/ConflictLock.js with methods: `acquire()`, `release()`, `getByConflictId()`, `cleanup()`, `isExpired()`
+- [x] T004 [P] Create ConflictLock model in src/models/ConflictLock.js with methods: `acquire()`, `release()`, `getByConflictId()`, `cleanup()`, `isExpired()`
 
-- [ ] T005 Register conflicts routes in src/app.js by importing and mounting `createConflictsRouter()` at `/api/conflicts`
+- [x] T005 Register conflicts routes in src/app.js by importing and mounting `createConflictsRouter()` at `/api/conflicts`
 
 ---
 
@@ -188,13 +188,13 @@ Implement core business logic services for conflict resolution, retry management
 
 ---
 
-- [ ] T006 Implement ConflictResolver service in src/services/ConflictResolver.js with methods: `resolve(conflictId, chosenVersion, userId)`, `apply(conflictId)`, `_performSync(conflict, chosenVersion)`, `_categorizeError(error)`
+- [x] T006 Implement ConflictResolver service in src/services/ConflictResolver.js with methods: `resolve(conflictId, chosenVersion, userId)`, `apply(conflictId)`, `_performSync(conflict, chosenVersion)`, `_categorizeError(error)`
 
-- [ ] T007 [P] Implement RetryManager service in src/services/RetryManager.js with methods: `applyWithRetry(conflictId, maxRetries=3)`, `_categorizeError(error)`, `_delay(ms)`, supporting exponential backoff delays [5000, 10000, 20000]
+- [x] T007 [P] Implement RetryManager service in src/services/RetryManager.js with methods: `applyWithRetry(conflictId, maxRetries=3)`, `_categorizeError(error)`, `_delay(ms)`, supporting exponential backoff delays [5000, 10000, 20000]
 
-- [ ] T008 [P] Implement BulkResolutionEngine service in src/services/BulkResolutionEngine.js with methods: `preview(rule)`, `apply(rule)`, `_matchConflicts(rule)`, validating rule format {model, field?, action}
+- [x] T008 [P] Implement BulkResolutionEngine service in src/services/BulkResolutionEngine.js with methods: `preview(rule)`, `apply(rule)`, `_matchConflicts(rule)`, validating rule format {model, field?, action}
 
-- [ ] T009 [P] Extend HistoryLogger service in src/services/HistoryLogger.js with methods: `queryByState(state, limit, offset)`, `queryByModel(model, limit)`, `queryByDateRange(start, end)`, `getDetails(operationId)`
+- [x] T009 [P] Extend HistoryLogger service in src/services/HistoryLogger.js with methods: `queryByState(state, limit, offset)`, `queryByModel(model, limit)`, `queryByDateRange(start, end)`, `getDetails(operationId)`
 
 ---
 
@@ -217,15 +217,15 @@ Users need to see what conflicts exist in their Odoo sync history so they can un
 
 ---
 
-- [ ] T010 [US1] Create ConflictsList frontend component in public/js/components/ConflictsList.js with methods: `load()`, `render()`, `filter(state, model)`, `onSelectConflict(id)`, displaying conflict table with columns: Model, Field, State, Created, Actions
+- [x] T010 [US1] Create ConflictsList frontend component in public/js/components/ConflictsList.js with methods: `load()`, `render()`, `filter(state, model)`, `onSelectConflict(id)`, displaying conflict table with columns: Model, Field, State, Created, Actions
 
-- [ ] T011 [P] [US1] Create ConflictDetail frontend component in public/js/components/ConflictDetail.js showing side-by-side JSON comparison of source_value vs target_value with metadata (write dates, state, model, record ID)
+- [x] T011 [P] [US1] Create ConflictDetail frontend component in public/js/components/ConflictDetail.js showing side-by-side JSON comparison of source_value vs target_value with metadata (write dates, state, model, record ID)
 
-- [ ] T012 [P] [US1] Implement GET /api/conflicts endpoint in src/api/routes/conflicts.js supporting query params: state, model, page (default 1), limit (default 50); returns paginated list with cursor for next page
+- [x] T012 [P] [US1] Implement GET /api/conflicts endpoint in src/api/routes/conflicts.js supporting query params: state, model, page (default 1), limit (default 50); returns paginated list with cursor for next page
 
-- [ ] T013 [P] [US1] Implement GET /api/conflicts/:id endpoint in src/api/routes/conflicts.js returning single conflict with full data including resolution (if exists) and lock status
+- [x] T013 [P] [US1] Implement GET /api/conflicts/:id endpoint in src/api/routes/conflicts.js returning single conflict with full data including resolution (if exists) and lock status
 
-- [ ] T014 [US1] Integrate conflicts list and detail components in public/index.html by adding routes: `/conflicts` → ConflictsList, `/conflicts/:id` → ConflictDetail modal
+- [x] T014 [US1] Integrate conflicts list and detail components in public/index.html by adding routes: `/conflicts` → ConflictsList, `/conflicts/:id` → ConflictDetail modal
 
 ---
 
@@ -249,21 +249,21 @@ Users need to resolve conflicts by choosing which version of the data is correct
 
 ---
 
-- [ ] T015 [US2] Implement POST /api/conflicts/:id/lock endpoint in src/api/routes/conflicts.js accepting {session_id} and calling ConflictLock.acquire(); returns 200 with lock details or 409 if already locked by another session
+- [x] T015 [US2] Implement POST /api/conflicts/:id/lock endpoint in src/api/routes/conflicts.js accepting {session_id} and calling ConflictLock.acquire(); returns 200 with lock details or 409 if already locked by another session
 
-- [ ] T016 [P] [US2] Implement POST /api/conflicts/:id/resolve endpoint in src/api/routes/conflicts.js accepting {chosen_version, session_id} and calling ConflictResolver.resolve(); updates sync_conflicts.state to 'resolved' and creates conflict_resolutions record
+- [x] T016 [P] [US2] Implement POST /api/conflicts/:id/resolve endpoint in src/api/routes/conflicts.js accepting {chosen_version, session_id} and calling ConflictResolver.resolve(); updates sync_conflicts.state to 'resolved' and creates conflict_resolutions record
 
-- [ ] T017 [P] [US2] Implement POST /api/conflicts/:id/apply endpoint in src/api/routes/conflicts.js accepting {session_id} and calling RetryManager.applyWithRetry(); returns 202 (processing) then 200 on success or 409 with "needs_manual_review" state on failure after 3 retries
+- [x] T017 [P] [US2] Implement POST /api/conflicts/:id/apply endpoint in src/api/routes/conflicts.js accepting {session_id} and calling RetryManager.applyWithRetry(); returns 202 (processing) then 200 on success or 409 with "needs_manual_review" state on failure after 3 retries
 
-- [ ] T018 [P] [US2] Implement DELETE /api/conflicts/:id/lock endpoint in src/api/routes/conflicts.js calling ConflictLock.release() and returning 204 No Content
+- [x] T018 [P] [US2] Implement DELETE /api/conflicts/:id/lock endpoint in src/api/routes/conflicts.js calling ConflictLock.release() and returning 204 No Content
 
-- [ ] T019 [P] [US2] Implement POST /api/conflicts/:id/retry endpoint in src/api/routes/conflicts.js for manual retry of "needs_manual_review" conflicts; calls RetryManager.applyWithRetry() again with reset retry_count
+- [x] T019 [P] [US2] Implement POST /api/conflicts/:id/retry endpoint in src/api/routes/conflicts.js for manual retry of "needs_manual_review" conflicts; calls RetryManager.applyWithRetry() again with reset retry_count
 
-- [ ] T020 [P] [US2] Create ResolutionForm frontend component in public/js/components/ResolutionForm.js with radio buttons (keep local | keep odoo), side-by-side comparison display, and apply button; calls POST /:id/lock → POST /:id/resolve → POST /:id/apply in sequence
+- [x] T020 [P] [US2] Create ResolutionForm frontend component in public/js/components/ResolutionForm.js with radio buttons (keep local | keep odoo), side-by-side comparison display, and apply button; calls POST /:id/lock → POST /:id/resolve → POST /:id/apply in sequence
 
-- [ ] T021 [P] [US2] Create NotificationPanel frontend component in public/js/components/NotificationPanel.js showing toast notifications for: auto-retry countdown (SE), user-correctable errors with detail (UC), unrecoverable errors with contact-support message (UR), success confirmations
+- [x] T021 [P] [US2] Create NotificationPanel frontend component in public/js/components/NotificationPanel.js showing toast notifications for: auto-retry countdown (SE), user-correctable errors with detail (UC), unrecoverable errors with contact-support message (UR), success confirmations
 
-- [ ] T022 [US2] Integrate resolution workflow in public/index.html by adding: ConflictDetail modal → ResolutionForm modal on user action, real-time status updates during apply phase, lock warnings if another user resolving same conflict
+- [x] T022 [US2] Integrate resolution workflow in public/index.html by adding: ConflictDetail modal → ResolutionForm modal on user action, real-time status updates during apply phase, lock warnings if another user resolving same conflict
 
 ---
 

@@ -1,0 +1,65 @@
+import logger from '../utils/logger.js';
+
+/**
+ * Retry Manager Service
+ * Handles retry workflow with exponential backoff.
+ */
+export class RetryManager {
+  constructor(conflictResolver) {
+    this.conflictResolver = conflictResolver;
+    this.backoffDelays = [5000, 10000, 20000];
+  }
+
+  async applyWithRetry(conflictId, maxRetries = 3) {
+    let lastError = null;
+
+    for (let attempt = 0; attempt < maxRetries; attempt += 1) {
+      try {
+        return await this.conflictResolver.apply(conflictId);
+      } catch (error) {
+        lastError = error;
+        const category = this._categorizeError(error);
+
+        if (category !== 'system') {
+          break;
+        }
+
+        const delayMs = this.backoffDelays[attempt] || this.backoffDelays[this.backoffDelays.length - 1];
+        logger.warn('Retrying conflict apply', { conflictId, attempt: attempt + 1, delayMs });
+        await this._delay(delayMs);
+      }
+    }
+
+    if (lastError) {
+      const db = this.conflictResolver.db;
+      db.prepare(`
+        UPDATE sync_conflicts
+        SET state = 'needs_manual_review', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(conflictId);
+    }
+
+    throw lastError || new Error('Retry failed');
+  }
+
+  _categorizeError(error) {
+    const message = String(error?.message || '').toLowerCase();
+    const code = String(error?.code || '').toUpperCase();
+
+    if (code.startsWith('UC') || message.includes('validation')) {
+      return 'user_correctable';
+    }
+
+    if (code.startsWith('SE') || message.includes('timeout') || message.includes('network')) {
+      return 'system';
+    }
+
+    return 'unrecoverable';
+  }
+
+  _delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+export default RetryManager;

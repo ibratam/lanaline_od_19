@@ -84,7 +84,7 @@ describe('History API Contract Tests', () => {
         .get('/api/history/export');
 
       expect(response.status).toBe(200);
-      expect(response.headers['content-type']).toMatch(/text\\/csv/);
+      expect(response.headers['content-type']).toMatch('/text\\/csv/');
     });
 
     it('should export JSON when requested', async () => {

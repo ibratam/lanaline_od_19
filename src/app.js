@@ -9,6 +9,7 @@ import createConfigRouter from './api/routes/config.js';
 import createSyncRouter from './api/routes/sync.js';
 import createScheduleRouter from './api/routes/schedule.js';
 import createHistoryRouter from './api/routes/history.js';
+import createConflictsRouter from './api/routes/conflicts.js';
 import ConfigManager from './services/ConfigManager.js';
 import ScheduleManager from './services/ScheduleManager.js';
 import HistoryLogger from './services/HistoryLogger.js';
@@ -59,6 +60,7 @@ export function createApp(db) {
   app.use('/api/sync', createSyncRouter(db, services));
   app.use('/api/schedule', createScheduleRouter(db, services));
   app.use('/api/history', createHistoryRouter(db, services));
+  app.use('/api/conflicts', createConflictsRouter(db, services));
 
   // TODO: Add more API routes if needed
 
