@@ -74,27 +74,27 @@ description: "Task list for Odoo 19 Database Synchronization Middleware implemen
 
 ### Contract Tests for User Story 1 (REQUIRED - TDD)
 
-- [ ] T023 [P] [US1] Contract test: POST /api/config saves database connection in tests/contract/config.test.js
-- [ ] T024 [P] [US1] Contract test: GET /api/config/{id} retrieves connection with password masked in tests/contract/config.test.js
-- [ ] T025 [P] [US1] Contract test: PUT /api/config/{id} updates connection in tests/contract/config.test.js
-- [ ] T026 [P] [US1] Contract test: DELETE /api/config/{id} deletes connection in tests/contract/config.test.js
-- [ ] T027 [P] [US1] Contract test: GET /api/config/test validates connectivity without saving in tests/contract/config.test.js
-- [ ] T028 [US1] Integration test: Full config workflow (save source, save target, test both) in tests/integration/configWorkflow.test.js
+- [x] T023 [P] [US1] Contract test: POST /api/config saves database connection in tests/contract/config.test.js
+- [x] T024 [P] [US1] Contract test: GET /api/config/{id} retrieves connection with password masked in tests/contract/config.test.js
+- [x] T025 [P] [US1] Contract test: PUT /api/config/{id} updates connection in tests/contract/config.test.js
+- [x] T026 [P] [US1] Contract test: DELETE /api/config/{id} deletes connection in tests/contract/config.test.js
+- [x] T027 [P] [US1] Contract test: GET /api/config/test validates connectivity without saving in tests/contract/config.test.js
+- [x] T028 [US1] Integration test: Full config workflow (save source, save target, test both) in tests/integration/configWorkflow.test.js
 
 ### Implementation for User Story 1
 
-- [ ] T029 [P] [US1] Create src/api/routes/config.js with GET /api/config, POST /api/config, PUT /api/config/{id}, DELETE /api/config/{id}
-- [ ] T030 [P] [US1] Create src/api/routes/config.js GET /api/config/test endpoint for connectivity validation
-- [ ] T031 [US1] Create src/public/js/components/ConfigForm.js - UI component for entering database credentials (source/target)
-- [ ] T032 [US1] Create src/public/js/services/apiClient.js - HTTP client for frontend API calls
-- [ ] T033 [US1] Create src/public/index.html - main UI page with tab navigation (Config, Preview, Sync, History, Schedules)
-- [ ] T034 [US1] Create src/public/css/styles.css - minimal CSS styling for forms and tables (no framework)
-- [ ] T035 [US1] Create src/public/js/components/ConnectionStatus.js - display component showing source/target connection status
-- [ ] T036 [US1] Add connection validation in ConfigForm.js: test button shows success/failure before saving
-- [ ] T037 [US1] Add password encryption when saving: call ConfigManager.saveConnection() with encrypted password
-- [ ] T038 [US1] Add password masking in GET responses: return "••••••••" instead of actual password
-- [ ] T039 [US1] Unit test: src/utils/encryption.js encrypt/decrypt functions in tests/unit/encryption.test.js
-- [ ] T040 [US1] Unit test: ConfigManager.saveConnection() and ConfigManager.getConnection() in tests/unit/ConfigManager.test.js
+- [x] T029 [P] [US1] Create src/api/routes/config.js with GET /api/config, POST /api/config, PUT /api/config/{id}, DELETE /api/config/{id}
+- [x] T030 [P] [US1] Create src/api/routes/config.js GET /api/config/test endpoint for connectivity validation
+- [x] T031 [US1] Create src/public/js/components/ConfigForm.js - UI component for entering database credentials (source/target)
+- [x] T032 [US1] Create src/public/js/services/apiClient.js - HTTP client for frontend API calls
+- [x] T033 [US1] Create src/public/index.html - main UI page with tab navigation (Config, Preview, Sync, History, Schedules)
+- [x] T034 [US1] Create src/public/css/styles.css - minimal CSS styling for forms and tables (no framework)
+- [x] T035 [US1] Create src/public/js/components/ConnectionsList.js - display component showing configured connections
+- [x] T036 [US1] Add connection validation in ConfigForm.js: test button shows success/failure before saving
+- [x] T037 [US1] Add password encryption when saving: call ConfigManager.saveConnection() with encrypted password
+- [x] T038 [US1] Add password masking in GET responses: return "••••••••" instead of actual password
+- [x] T039 [US1] Unit test: src/utils/encryption.js encrypt/decrypt functions in tests/unit/encryption.test.js
+- [x] T040 [US1] Unit test: ConfigManager.saveConnection() and ConfigManager.getConnection() in tests/unit/ConfigManager.test.js
 
 **Checkpoint**: User Story 1 complete - two Odoo databases can be configured and tested
 
@@ -108,22 +108,22 @@ description: "Task list for Odoo 19 Database Synchronization Middleware implemen
 
 ### Contract Tests for User Story 2 (REQUIRED - TDD)
 
-- [ ] T041 [P] [US2] Contract test: POST /api/sync/preview generates preview in tests/contract/sync.test.js
-- [ ] T042 [P] [US2] Contract test: /api/sync/preview returns records to create/update/delete counts in tests/contract/sync.test.js
-- [ ] T043 [P] [US2] Contract test: /api/sync/preview detects and returns conflicts with field diffs in tests/contract/sync.test.js
-- [ ] T044 [US2] Integration test: Preview with conflicts detected in tests/integration/previewWorkflow.test.js
+- [x] T041 [P] [US2] Contract test: POST /api/sync/preview generates preview in tests/contract/sync.test.js
+- [x] T042 [P] [US2] Contract test: /api/sync/preview returns records to create/update/delete counts in tests/contract/sync.test.js
+- [x] T043 [P] [US2] Contract test: /api/sync/preview detects and returns conflicts with field diffs in tests/contract/sync.test.js
+- [x] T044 [US2] Integration test: Preview with conflicts detected in tests/integration/previewWorkflow.test.js
 
 ### Implementation for User Story 2
 
-- [ ] T045 [P] [US2] Create src/services/SyncEngine.js with compareRecords() method to detect create/update/delete operations
-- [ ] T046 [P] [US2] Create src/services/ConflictDetector.js with detectConflicts() to identify field differences between databases
-- [ ] T047 [US2] Create src/api/routes/sync.js POST /api/sync/preview endpoint
-- [ ] T048 [US2] Implement preview logic: fetch all records from source, compare with target, generate diff report
-- [ ] T049 [US2] Create src/public/js/components/PreviewDisplay.js - UI component showing preview report (creates, updates, deletes, conflicts)
-- [ ] T050 [US2] Add conflict expansion UI: click conflict → show source vs target field values with original IDs and dates
-- [ ] T051 [US2] Create src/public/js/utils/formatters.js - format sync counts and timestamps for display
-- [ ] T052 [US2] Unit test: ConflictDetector.detectConflicts() with mock data in tests/unit/ConflictDetector.test.js
-- [ ] T053 [US2] Unit test: SyncEngine.compareRecords() with test records in tests/unit/SyncEngine.test.js
+- [x] T045 [P] [US2] Create src/services/SyncEngine.js with compareRecords() method to detect create/update/delete operations
+- [x] T046 [P] [US2] Create src/services/ConflictDetector.js with detectConflicts() to identify field differences between databases
+- [x] T047 [US2] Create src/api/routes/sync.js POST /api/sync/preview endpoint
+- [x] T048 [US2] Implement preview logic: fetch all records from source, compare with target, generate diff report
+- [x] T049 [US2] Create src/public/js/components/PreviewDisplay.js - UI component showing preview report (creates, updates, deletes, conflicts)
+- [x] T050 [US2] Add conflict expansion UI: click conflict → show source vs target field values with original IDs and dates
+- [x] T051 [US2] Create src/public/js/utils/formatters.js - format sync counts and timestamps for display
+- [x] T052 [US2] Unit test: ConflictDetector.detectConflicts() with mock data in tests/unit/ConflictDetector.test.js
+- [x] T053 [US2] Unit test: SyncEngine.compareRecords() with test records in tests/unit/SyncEngine.test.js
 
 **Checkpoint**: User Story 2 complete - administrators can preview sync scope and conflicts
 

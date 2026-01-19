@@ -5,14 +5,11 @@ import logger from '../../utils/logger.js';
  */
 export function errorHandler(err, req, res, next) {
   const {
-    status = 500,
     message = 'Internal server error',
-    statusCode = 500,
-    details = null,
-    code = 'INTERNAL_ERROR'
+    details = null
   } = err;
-
-  const responseStatus = status || statusCode || 500;
+  const responseStatus = err.status ?? err.statusCode ?? 500;
+  const code = err.code ?? 'INTERNAL_ERROR';
 
   // Log error
   logger.error('Request error:', {

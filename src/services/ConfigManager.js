@@ -68,7 +68,7 @@ export class ConfigManager {
     try {
       const connection = this.model.getById(id);
       if (!connection) {
-        throw new Error(`Connection ${id} not found`);
+        return null;
       }
 
       const secretKey = process.env.MIDDLEWARE_SECRET_KEY;
@@ -99,7 +99,7 @@ export class ConfigManager {
     try {
       const connection = this.model.getById(id);
       if (!connection) {
-        throw new Error(`Connection ${id} not found`);
+        return null;
       }
 
       return this.maskConnection(connection);

@@ -43,13 +43,31 @@ export class OdooClient {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        const httpError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+        httpError.name = 'OdooHttpError';
+        httpError.code = 'ODOO_HTTP_ERROR';
+        httpError.statusCode = response.status;
+        httpError.details = {
+          status: response.status,
+          statusText: response.statusText,
+          url: this.url
+        };
+        throw httpError;
       }
 
       const data = await response.json();
 
       if (data.error) {
-        throw new Error(`Odoo RPC Error: ${data.error.message || JSON.stringify(data.error)}`);
+        const details = {
+          code: data.error.code,
+          message: data.error.message,
+          data: data.error.data
+        };
+        const rpcError = new Error(`Odoo RPC Error: ${details.message || 'Unknown error'}`);
+        rpcError.name = 'OdooRpcError';
+        rpcError.code = 'ODOO_RPC_ERROR';
+        rpcError.details = details;
+        throw rpcError;
       }
 
       return data.result;
@@ -73,7 +91,11 @@ export class OdooClient {
       });
 
       if (!uid || uid === false) {
-        throw new Error('Authentication failed: Invalid credentials');
+        const authError = new Error('Authentication failed: Invalid credentials');
+        authError.name = 'OdooAuthError';
+        authError.code = 'ODOO_AUTH_FAILED';
+        authError.statusCode = 401;
+        throw authError;
       }
 
       this.uid = uid;
@@ -81,6 +103,20 @@ export class OdooClient {
       logger.info(`Authenticated successfully with UID: ${uid}`);
       return true;
     } catch (error) {
+      if (error?.name === 'OdooRpcError') {
+        const errorName = String(error.details?.data?.name || '').toLowerCase();
+        if (errorName.includes('access') || errorName.includes('login')) {
+          const authError = new Error('Authentication failed');
+          authError.name = 'OdooAuthError';
+          authError.code = 'ODOO_AUTH_FAILED';
+          authError.statusCode = 401;
+          authError.details = error.details;
+          logger.error('Authentication failed:', authError);
+          this.authenticated = false;
+          throw authError;
+        }
+      }
+
       logger.error('Authentication failed:', error);
       this.authenticated = false;
       throw error;
@@ -318,7 +354,10 @@ export class OdooClient {
       logger.error('Odoo connection test failed:', error);
       return {
         success: false,
-        message: error.message
+        message: error.message,
+        code: error.code,
+        status: error.statusCode,
+        details: error.details
       };
     }
   }

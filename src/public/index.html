@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Odoo Database Synchronization Middleware</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <header>
+    <div class="container">
+      <h1>🔄 Odoo Database Synchronization Middleware</h1>
+    </div>
+  </header>
+
+  <div class="container">
+    <!-- Navigation Tabs -->
+    <nav class="tabs">
+      <button class="tab-btn active" data-tab="config">
+        ⚙️ Configuration
+      </button>
+      <button class="tab-btn" data-tab="preview">
+        👁️ Preview
+      </button>
+      <button class="tab-btn" data-tab="sync">
+        🔄 Synchronize
+      </button>
+      <button class="tab-btn" data-tab="schedule">
+        ⏰ Schedule
+      </button>
+      <button class="tab-btn" data-tab="history">
+        📋 History
+      </button>
+    </nav>
+
+    <!-- Tab Content -->
+
+    <!-- Configuration Tab -->
+    <div id="config" class="tab-content active">
+      <div class="card">
+        <h2>Database Configuration</h2>
+        <p>Configure your source and target Odoo databases.</p>
+
+        <!-- Connections List -->
+        <div id="connections-list" class="mt-20">
+          <h3>Existing Connections</h3>
+          <div id="connections-container">
+            <p class="text-muted">Loading connections...</p>
+          </div>
+        </div>
+
+        <!-- Add New Connection Form -->
+        <div class="mt-20">
+          <h3>Add New Connection</h3>
+          <div id="config-form-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Preview Tab -->
+    <div id="preview" class="tab-content hidden">
+      <div class="card">
+        <h2>Synchronization Preview</h2>
+        <p>Review what data will be synchronized before executing.</p>
+        <div id="preview-container">
+          <p class="text-muted">Select two configured databases to preview sync scope.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sync Tab -->
+    <div id="sync" class="tab-content hidden">
+      <div class="card">
+        <h2>Execute Synchronization</h2>
+        <div id="sync-container">
+          <p class="text-muted">Select two configured databases to begin synchronization.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Schedule Tab -->
+    <div id="schedule" class="tab-content hidden">
+      <div class="card">
+        <h2>Scheduled Synchronization</h2>
+        <div id="schedule-container">
+          <p class="text-muted">Configure automatic synchronization schedules.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- History Tab -->
+    <div id="history" class="tab-content hidden">
+      <div class="card">
+        <h2>Synchronization History</h2>
+        <div id="history-container">
+          <p class="text-muted">View past synchronization operations.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/js/app.js" type="module"></script>
+</body>
+</html>
