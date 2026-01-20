@@ -1,5 +1,6 @@
 import logger from '../../utils/logger.js';
 import { sanitizeErrorMessage } from '../../utils/errorSanitizer.js';
+import { ValidationError, SystemError, UnrecoverableError } from './errors.js';
 
 /**
  * Categorize error for appropriate user messaging and retry strategy
@@ -98,16 +99,6 @@ export function asyncHandler(fn) {
 /**
  * Validation error class
  */
-export class ValidationError extends Error {
-  constructor(message, details = null) {
-    super(message);
-    this.name = 'ValidationError';
-    this.statusCode = 400;
-    this.code = 'VALIDATION_ERROR';
-    this.details = details;
-  }
-}
-
 /**
  * Not found error class
  */
@@ -157,5 +148,7 @@ export class InternalError extends Error {
     this.details = details;
   }
 }
+
+export { ValidationError, SystemError, UnrecoverableError };
 
 export default errorHandler;

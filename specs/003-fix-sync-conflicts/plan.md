@@ -185,6 +185,16 @@ Sync Operation States:
                    needs_review (terminal after 3 retries)
 ```
 
+### Conflict Resolution & Data Updates
+```
+When user chooses conflict resolution:
+  - keep_local: Update Odoo record with local data (add/update only, no delete)
+  - keep_odoo: Update local record with Odoo data (add/update only, no delete)
+  - Apply update operation at target system
+  - Mark conflict as applied
+  - System never deletes records, only adds/updates
+```
+
 ### Table Creation Workflow
 ```
 1. Sync operation starts

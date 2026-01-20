@@ -12,6 +12,7 @@
 - Q: Should state transitions be one-directional or reversible? → A: Limited reversibility model - Applied can transition to Failed Resolution, and Needs Manual Review can revert to Resolved for retry after user fixes data
 - Q: Should access to retry/recover operations be role-based? → A: No role-based restrictions - all authenticated users can view failures, conflicts, detailed errors, and retry operations (error messages are sanitized but not restricted)
 - Q: How should Odoo API errors beyond timeouts be handled? → A: Smart categorization - retry idempotent-safe errors (timeouts, 429, connection resets); fail immediately on 4xx; retry 5xx once then move to manual review if unavailable
+- Q: System data model behavior → A: System only adds and updates records (no deletions); when conflict resolution applied, update the target record with user's chosen version (keep_local updates Odoo with local data, keep_odoo updates local with Odoo data)
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -109,7 +110,7 @@ Users need detailed visibility into sync operations and their internal processin
 - **FR-003**: System MUST provide suggested corrective actions for each error type (e.g., "Validation failed: required field missing. Please update [field name] in local record.")
 - **FR-004**: System MUST allow users to retry failed sync operations after making corrective changes
 - **FR-005**: System MUST track retry attempts and provide history of what was tried
-- **FR-006**: System MUST handle conflicts that fail during the apply phase (not just detection phase) with appropriate state management
+- **FR-006**: System MUST handle conflicts that fail during the apply phase (not just detection phase) with appropriate state management; when conflict resolution is applied, system updates the target record with the chosen version's data (no deletions, only add/update operations)
 - **FR-007**: System MUST move conflicts to "needs_manual_review" state after 3 failed retry attempts and notify users
 - **FR-008**: System MUST provide data consistency verification that compares key record fields between local database and Odoo
 - **FR-009**: System MUST identify specific records and fields with inconsistencies when verification detects issues
@@ -156,3 +157,4 @@ Users need detailed visibility into sync operations and their internal processin
 6. **Data Consistency**: Comparing key fields (status, amount, date modified) is sufficient for verification; row-by-row comparison not needed
 7. **User Expectations**: Users have technical knowledge to understand field-level errors and make corrections
 8. **Scope**: This feature addresses fixing failures in sync and conflict resolution processes; new conflict detection methods are out of scope
+9. **Data Model Behavior**: System only adds and updates records (no deletions); when conflict resolution is applied with keep_local, Odoo record is updated with local data; when keep_odoo, local record is updated with Odoo data (from Clarification Session 2026-01-20)
