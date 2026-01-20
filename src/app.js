@@ -10,12 +10,16 @@ import createSyncRouter from './api/routes/sync.js';
 import createScheduleRouter from './api/routes/schedule.js';
 import createHistoryRouter from './api/routes/history.js';
 import createConflictsRouter from './api/routes/conflicts.js';
+import createConsistencyRouter from './api/routes/consistency.js';
+import createOperationsRouter from './api/routes/operations.js';
 import ConfigManager from './services/ConfigManager.js';
 import ScheduleManager from './services/ScheduleManager.js';
 import HistoryLogger from './services/HistoryLogger.js';
 import DataPreserver from './services/DataPreserver.js';
 import NotificationService from './services/NotificationService.js';
 import ConflictLock from './models/ConflictLock.js';
+import ConsistencyChecker from './services/ConsistencyChecker.js';
+import DataInconsistency from './models/DataInconsistency.js';
 
 // Load environment variables
 dotenv.config();
@@ -47,6 +51,14 @@ export function createApp(db) {
   services.scheduleManager = new ScheduleManager(db, services);
   services.scheduleManager.startScheduler();
 
+  // Initialize consistency checking services
+  services.dataInconsistencyModel = new DataInconsistency(db.getDB());
+  services.consistencyChecker = new ConsistencyChecker(
+    db.getDB(),
+    services.odooClient, // Will be set by sync service
+    services.dataInconsistencyModel
+  );
+
   // Initialize conflict lock cleanup job (runs every 60 seconds)
   const lockModel = new ConflictLock(db.getDB());
   const lockCleanupInterval = setInterval(() => {
@@ -76,6 +88,8 @@ export function createApp(db) {
   app.use('/api/schedule', createScheduleRouter(db, services));
   app.use('/api/history', createHistoryRouter(db, services));
   app.use('/api/conflicts', createConflictsRouter(db, services));
+  app.use('/api/consistency', createConsistencyRouter(db, services));
+  app.use('/api/operations', createOperationsRouter(db, services));
 
   // TODO: Add more API routes if needed
 

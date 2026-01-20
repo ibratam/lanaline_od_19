@@ -49,6 +49,9 @@ export class ConflictsList {
               <option value="">All</option>
               <option value="detected" ${this.stateFilter === 'detected' ? 'selected' : ''}>Detected</option>
               <option value="resolved" ${this.stateFilter === 'resolved' ? 'selected' : ''}>Resolved</option>
+              <option value="failed_resolution" ${this.stateFilter === 'failed_resolution' ? 'selected' : ''}>Failed Resolution</option>
+              <option value="needs_manual_review" ${this.stateFilter === 'needs_manual_review' ? 'selected' : ''}>Needs Manual Review</option>
+              <option value="applied" ${this.stateFilter === 'applied' ? 'selected' : ''}>Applied</option>
             </select>
           </div>
           <div class="form-group">

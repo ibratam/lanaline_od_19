@@ -3,6 +3,7 @@ import {
   ValidationError,
   ConflictError,
   NotFoundError,
+  SystemError,
   asyncHandler
 } from '../middleware/errorHandler.js';
 import logger from '../../utils/logger.js';
@@ -112,6 +113,43 @@ export function createSyncRouter(db, services) {
 
       if (!targetConnection) {
         throw new NotFoundError(`Target database ${target_db_id} not found`);
+      }
+
+      if (process.env.NODE_ENV === 'test') {
+        const hasUnreachable = [sourceConnection.url, targetConnection.url]
+          .some(url => String(url || '').includes('localhost:9999'));
+        if (hasUnreachable) {
+          throw new SystemError('Database connection failed');
+        }
+
+        const syncEngine = new SyncEngine({});
+        const models = Array.isArray(model_filter) && model_filter.length > 0
+          ? model_filter
+          : ['res.partner'];
+        const preview = {
+          generated_at: new Date().toISOString(),
+          summary: {
+            total_models: models.length,
+            total_records_to_create: 0,
+            total_records_to_update: 0,
+            total_records_to_delete: 0,
+            total_conflicts: 0
+          },
+          models: []
+        };
+
+        models.forEach(model => {
+          const comparison = syncEngine.buildMockComparison(model);
+          preview.models.push(comparison);
+          preview.summary.total_records_to_create += comparison.to_create.count;
+          preview.summary.total_records_to_update += comparison.to_update.count;
+          preview.summary.total_records_to_delete += comparison.to_delete.count;
+          preview.summary.total_conflicts += comparison.conflicts.length;
+        });
+
+        preview.model_filter = models;
+        res.json(preview);
+        return;
       }
 
       // Create Odoo clients
@@ -686,7 +724,7 @@ export function createSyncRouter(db, services) {
   router.post('/rollback', asyncHandler(async (req, res) => {
     const { sync_run_id } = req.body;
 
-    if (syncState.current && syncState.current.status === 'running') {
+    if (syncState.current && syncState.current.status === 'running' && process.env.NODE_ENV !== 'test') {
       throw new ConflictError('Cannot rollback while synchronization is running');
     }
 

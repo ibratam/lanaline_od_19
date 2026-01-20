@@ -34,6 +34,12 @@
       <button class="tab-btn" data-tab="conflicts">
         ⚠️ Conflicts
       </button>
+      <button class="tab-btn" data-tab="consistency">
+        ✓ Data Consistency
+      </button>
+      <button class="tab-btn" data-tab="operations">
+        📊 Operation Logs
+      </button>
     </nav>
 
     <!-- Tab Content -->
@@ -120,6 +126,38 @@
         <h2>Conflict Resolution</h2>
         <div id="conflicts-container">
           <p class="text-muted">Loading conflicts...</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Data Consistency Tab -->
+    <div id="consistency" class="tab-content hidden">
+      <div class="card">
+        <h2>Data Consistency Verification</h2>
+        <div id="consistency-controls" class="mt-20">
+          <button id="check-consistency-btn" class="btn btn-primary">
+            🔍 Run Consistency Check
+          </button>
+          <span id="consistency-status" class="status-indicator"></span>
+        </div>
+        <div id="consistency-report" class="mt-20">
+          <p class="text-muted">No consistency check performed yet. Click "Run Consistency Check" to start.</p>
+        </div>
+        <div id="consistency-history" class="mt-20">
+          <h3>Repair History</h3>
+          <div id="consistency-history-container">
+            <p class="text-muted">No repair history yet.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Operation Logs Tab -->
+    <div id="operations" class="tab-content hidden">
+      <div class="card">
+        <h2>Sync Operations Monitoring</h2>
+        <div id="operations-log-container" class="mt-20">
+          <p class="text-muted">Loading operations...</p>
         </div>
       </div>
     </div>

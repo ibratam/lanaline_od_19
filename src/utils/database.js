@@ -27,7 +27,8 @@ class DatabaseConnection {
 
       // Open database connection
       this.db = new Database(this.dbPath);
-      this.db.pragma('journal_mode = WAL');
+      const journalMode = process.env.NODE_ENV === 'test' ? 'MEMORY' : 'WAL';
+      this.db.pragma(`journal_mode = ${journalMode}`);
       this.db.pragma('foreign_keys = ON');
 
       logger.info(`Database connection opened: ${this.dbPath}`);

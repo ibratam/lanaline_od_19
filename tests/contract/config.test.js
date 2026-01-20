@@ -125,7 +125,7 @@ describe('Configuration API Contract Tests', () => {
       expect(response.body.name).toBe('test-get-config');
       expect(response.body.username).toBe('admin');
       // Password should be masked
-      expect(response.body.password_encrypted).toMatch(/^\*+$/);
+      expect(response.body.password_encrypted).toMatch(/•{8}/);
       expect(response.body.password).toBeUndefined();
     });
 
@@ -308,7 +308,7 @@ describe('Configuration API Contract Tests', () => {
       // Verify passwords are masked
       response.body.forEach(conn => {
         expect(conn.password).toBeUndefined();
-        expect(conn.password_encrypted).toMatch(/^\*+$/);
+        expect(conn.password_encrypted).toMatch(/•{8}/);
       });
     });
   });

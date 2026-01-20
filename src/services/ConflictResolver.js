@@ -1,4 +1,5 @@
 import logger from '../utils/logger.js';
+import { ensureConflictTransition } from '../utils/stateValidator.js';
 
 /**
  * Conflict Resolver Service
@@ -22,7 +23,13 @@ export class ConflictResolver {
       throw new Error(`Conflict ${conflictId} not found`);
     }
 
-    if (['resolved', 'applied'].includes(conflict.state)) {
+    if (conflict.state === 'applied') {
+      throw new Error('Conflict already applied');
+    }
+
+    ensureConflictTransition(conflict.state, 'resolved');
+
+    if (conflict.state === 'resolved') {
       throw new Error('Conflict already resolved');
     }
 
@@ -53,9 +60,11 @@ export class ConflictResolver {
       throw new Error(`Conflict ${conflictId} not found`);
     }
 
-    if (conflict.state !== 'resolved') {
+    if (!['resolved', 'failed_resolution'].includes(conflict.state)) {
       throw new Error('Conflict is not resolved');
     }
+
+    ensureConflictTransition(conflict.state, 'applied');
 
     const resolution = this.db.prepare(`
       SELECT * FROM conflict_resolutions WHERE conflict_id = ?
@@ -65,54 +74,43 @@ export class ConflictResolver {
       throw new Error('Resolution record missing');
     }
 
-    try {
-      this._performSync(conflict, resolution.chosen_version);
-      this.db.prepare(`
-        UPDATE sync_conflicts
-        SET state = 'applied', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(conflictId);
-      this.db.prepare(`
-        UPDATE conflict_resolutions
-        SET applied_at = CURRENT_TIMESTAMP
-        WHERE conflict_id = ?
-      `).run(conflictId);
-      return { status: 'applied' };
-    } catch (error) {
-      const category = this._categorizeError(error);
-      this.db.prepare(`
-        UPDATE sync_conflicts
-        SET state = 'needs_manual_review', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(conflictId);
-      this.db.prepare(`
-        UPDATE conflict_resolutions
-        SET last_error = ?, last_error_category = ?, last_retry_at = CURRENT_TIMESTAMP
-        WHERE conflict_id = ?
-      `).run(error.message, category, conflictId);
-      throw error;
-    }
+    this._performSync(conflict, resolution.chosen_version);
+    this.db.prepare(`
+      UPDATE sync_conflicts
+      SET state = 'applied', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(conflictId);
+    this.db.prepare(`
+      UPDATE conflict_resolutions
+      SET applied_at = CURRENT_TIMESTAMP
+      WHERE conflict_id = ?
+    `).run(conflictId);
+    return { status: 'applied' };
   }
 
-  _performSync(conflict, chosenVersion) {
-    if (!conflict || !chosenVersion) {
-      throw new Error('Conflict sync payload invalid');
+  reopenForRetry(conflictId) {
+    const conflict = this._getConflict(conflictId);
+    if (!conflict) {
+      throw new Error(`Conflict ${conflictId} not found`);
     }
-    return true;
+
+    if (conflict.state !== 'needs_manual_review') {
+      return conflict;
+    }
+
+    ensureConflictTransition(conflict.state, 'resolved');
+    this.db.prepare(`
+      UPDATE sync_conflicts
+      SET state = 'resolved', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(conflictId);
+    return this._getConflict(conflictId);
   }
 
-  /**
-   * Categorize errors into three categories for retry strategy and user messaging.
-   * Maps to error codes: UC-001-999, SE-001-999, UR-001-999
-   *
-   * @param {Error} error - The error to categorize
-   * @returns {string} One of 'user_correctable', 'system', or 'unrecoverable'
-   */
   _categorizeError(error) {
     const message = String(error?.message || '').toLowerCase();
     const code = String(error?.code || '').toUpperCase();
 
-    // User-Correctable (UC-001-999): Validation errors, data constraint violations
     if (code.startsWith('UC') ||
         message.includes('validation') ||
         message.includes('required field') ||
@@ -121,7 +119,6 @@ export class ConflictResolver {
       return 'user_correctable';
     }
 
-    // System Errors (SE-001-999): Temporary failures that may succeed on retry
     if (code.startsWith('SE') ||
         message.includes('timeout') ||
         message.includes('network') ||
@@ -131,8 +128,14 @@ export class ConflictResolver {
       return 'system';
     }
 
-    // Unrecoverable (UR-001-999): Permanent failures that won't succeed on retry
     return 'unrecoverable';
+  }
+
+  _performSync(conflict, chosenVersion) {
+    if (!conflict || !chosenVersion) {
+      throw new Error('Conflict sync payload invalid');
+    }
+    return true;
   }
 
   _getConflict(conflictId) {

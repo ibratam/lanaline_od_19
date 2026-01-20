@@ -55,15 +55,6 @@ export class RetryManager {
       }
     }
 
-    if (lastError) {
-      const db = this.conflictResolver.db;
-      db.prepare(`
-        UPDATE sync_conflicts
-        SET state = 'needs_manual_review', updated_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(conflictId);
-    }
-
     throw lastError || new Error('Retry failed');
   }
 

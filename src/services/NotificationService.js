@@ -18,6 +18,16 @@ export class NotificationService {
 
     return true;
   }
+
+  sendConflictNeedsReview(payload) {
+    logger.warn('Conflict moved to needs_manual_review', {
+      conflict_id: payload.conflict_id,
+      category: payload.error_category,
+      suggested_action: payload.suggested_action
+    });
+
+    return true;
+  }
 }
 
 export default NotificationService;

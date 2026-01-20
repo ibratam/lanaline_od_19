@@ -36,18 +36,18 @@ function categorizeError(error) {
 /**
  * Centralized error handling middleware with error categorization
  */
-export function errorHandler(err, req, res) {
+export function errorHandler(err, req, res, next) {
+  void next;
   const {
     message = 'Internal server error',
     details = null
   } = err;
   const responseStatus = err.status ?? err.statusCode ?? 500;
-  let code = err.code ?? 'INTERNAL_ERROR';
+  let code = err.code ?? null;
 
   // Categorize error and assign error code with prefix if not already assigned
   const errorCategory = categorizeError(err);
-  if (!code.includes('-') && !code.startsWith('UC') && !code.startsWith('SE') && !code.startsWith('UR')) {
-    // Generate error code with appropriate prefix
+  if (!code) {
     const errorNum = Math.floor(Math.random() * 999) + 1;
     code = `${errorCategory.prefix}-${String(errorNum).padStart(3, '0')}`;
   }
@@ -76,6 +76,7 @@ export function errorHandler(err, req, res) {
   });
 
   // Send response
+  res.setHeader('Content-Type', 'application/json');
   res.status(responseStatus).json({
     error: true,
     status: responseStatus,

@@ -126,15 +126,15 @@ Users understand why conflict resolutions fail, see clear recovery guidance, and
 
 ---
 
-- [ ] T023 [US2] Enhance ConflictResolver in src/services/ConflictResolver.js to implement limited state reversibility: Applied can transition to Failed Resolution if error detected during apply, Needs Manual Review can revert to Resolved after user fixes data
-- [ ] T024 [US2] Create ConflictFailureHandler in src/services/ConflictFailureHandler.js to capture and categorize conflict resolution failures with suggested corrective actions (fix validation, update record data, resolve stale cache)
-- [ ] T025 [US2] Extend POST /api/conflicts/{id}/resolve endpoint in src/api/routes/conflicts.js to: apply resolution, detect failures, move to needs_manual_review if 3 failed retries, notify user with specific actions
-- [ ] T026 [US2] Create POST /api/conflicts/{id}/retry endpoint in src/api/routes/conflicts.js to allow retry of failed resolution after user has applied fixes; validate state machine transition
-- [ ] T027 [P] [US2] Implement NotificationService extension in src/services/NotificationService.js to notify users when conflicts move to needs_manual_review with actionable next steps
-- [ ] T028 [P] [US2] Create ResolutionRetryPanel component in src/public/js/components/ResolutionRetryPanel.js to show: failure reason, suggested actions, retry button, resolution history
-- [ ] T029 [US2] Update conflicts.html dashboard to add resolution failures panel showing conflicts in needs_manual_review with suggested corrective actions
-- [ ] T030 [US2] Add test scenario in tests/integration/conflictRecoveryTest.js: Resolve conflict, simulate failure, verify needs_manual_review state, user fixes data, retry, verify applied state
-- [ ] T031 [US2] Update tasks.md to mark T023-T030 as completed after implementation
+- [X] T023 [US2] Enhance ConflictResolver in src/services/ConflictResolver.js to implement limited state reversibility: Applied can transition to Failed Resolution if error detected during apply, Needs Manual Review can revert to Resolved after user fixes data
+- [X] T024 [US2] Create ConflictFailureHandler in src/services/ConflictFailureHandler.js to capture and categorize conflict resolution failures with suggested corrective actions (fix validation, update record data, resolve stale cache)
+- [X] T025 [US2] Extend POST /api/conflicts/{id}/resolve endpoint in src/api/routes/conflicts.js to: apply resolution, detect failures, move to needs_manual_review if 3 failed retries, notify user with specific actions
+- [X] T026 [US2] Create POST /api/conflicts/{id}/retry endpoint in src/api/routes/conflicts.js to allow retry of failed resolution after user has applied fixes; validate state machine transition
+- [X] T027 [P] [US2] Implement NotificationService extension in src/services/NotificationService.js to notify users when conflicts move to needs_manual_review with actionable next steps
+- [X] T028 [P] [US2] Create ResolutionRetryPanel component in src/public/js/components/ResolutionRetryPanel.js to show: failure reason, suggested actions, retry button, resolution history
+- [X] T029 [US2] Update conflicts.html dashboard to add resolution failures panel showing conflicts in needs_manual_review with suggested corrective actions
+- [X] T030 [US2] Add test scenario in tests/integration/conflictRecoveryTest.js: Resolve conflict, simulate failure, verify needs_manual_review state, user fixes data, retry, verify applied state
+- [X] T031 [US2] Update tasks.md to mark T023-T030 as completed after implementation
 
 ---
 
@@ -156,14 +156,14 @@ Users can verify data consistency between local and Odoo, identify specific fiel
 
 ---
 
-- [ ] T032 [US3] Create ConsistencyChecker service in src/services/ConsistencyChecker.js to: compare key fields (status, amount, date_modified) between local DB and Odoo, categorize mismatches (data_mismatch, missing_record, extra_record), store in data_inconsistencies table
-- [ ] T033 [US3] Implement GET /api/consistency/check endpoint in src/api/routes/consistency.js to: run consistency verification, return report with affected record count, sample inconsistencies, categorization breakdown
-- [ ] T034 [P] [US3] Create DataInconsistency model in src/models/DataInconsistency.js to store: record ID, field name, local value, odoo value, inconsistency type, suggested repair action
-- [ ] T035 [P] [US3] Implement POST /api/consistency/repair endpoint to: apply suggested repair (keep_local updates Odoo, keep_odoo updates local, manual_review flags for user), track repair in audit log
-- [ ] T036 [US3] Create ConsistencyReport component in src/public/js/components/ConsistencyReport.js to display: inconsistency breakdown by type, affected record count, detailed list of mismatches, repair options
-- [ ] T037 [US3] Extend dashboard.html to add data consistency panel with: check button, consistency status, repair options, history
-- [ ] T038 [US3] Add test scenario in tests/integration/consistencyVerification.test.js: Run consistency check, verify detection of mismatches, verify repair options, apply repair, verify consistency
-- [ ] T039 [US3] Update tasks.md to mark T032-T038 as completed after implementation
+- [X] T032 [US3] Create ConsistencyChecker service in src/services/ConsistencyChecker.js to: compare key fields (status, amount, date_modified) between local DB and Odoo, categorize mismatches (data_mismatch, missing_record, extra_record), store in data_inconsistencies table
+- [X] T033 [US3] Implement GET /api/consistency/check endpoint in src/api/routes/consistency.js to: run consistency verification, return report with affected record count, sample inconsistencies, categorization breakdown
+- [X] T034 [P] [US3] Create DataInconsistency model in src/models/DataInconsistency.js to store: record ID, field name, local value, odoo value, inconsistency type, suggested repair action
+- [X] T035 [P] [US3] Implement POST /api/consistency/repair endpoint to: apply suggested repair (keep_local updates Odoo, keep_odoo updates local, manual_review flags for user), track repair in audit log
+- [X] T036 [US3] Create ConsistencyReport component in src/public/js/components/ConsistencyReport.js to display: inconsistency breakdown by type, affected record count, detailed list of mismatches, repair options
+- [X] T037 [US3] Extend dashboard.html to add data consistency panel with: check button, consistency status, repair options, history
+- [X] T038 [US3] Add test scenario in tests/integration/consistencyVerification.test.js: Run consistency check, verify detection of mismatches, verify repair options, apply repair, verify consistency
+- [X] T039 [US3] Update tasks.md to mark T032-T038 as completed after implementation
 
 ---
 
@@ -185,14 +185,14 @@ Power users and administrators can access comprehensive logs showing sync operat
 
 ---
 
-- [ ] T040 [US4] Create OperationLogger component in src/public/js/components/OperationLogger.js to display: sync operation logs, timing breakdown by phase, state transitions, error details with categorization
-- [ ] T041 [US4] Implement GET /api/operations/{id}/logs endpoint in src/api/routes/operations.js to retrieve detailed logs for specific sync operation with full timing data and phase breakdown
-- [ ] T042 [P] [US4] Enhance SyncOperationLogger to capture: phase start/end times, records processed per phase, errors per phase, cumulative timing for performance analysis
-- [ ] T043 [P] [US4] Create OperationAnalyzer service in src/services/OperationAnalyzer.js to: parse operation logs, identify bottlenecks, suggest performance improvements based on phase timing
-- [ ] T044 [US4] Extend dashboard.html to add operation monitoring panel with: log viewer, timing breakdown chart, phase performance analysis, bottleneck identification
-- [ ] T045 [US4] Implement log search/filter in OperationLogger component: filter by date range, operation status, error category, affected records, specific error codes
-- [ ] T046 [US4] Add test scenario in tests/integration/operationMonitoring.test.js: Run sync operation, verify logs captured, verify timing data complete, verify phase breakdown, verify error details
-- [ ] T047 [US4] Update tasks.md to mark T040-T046 as completed after implementation
+- [X] T040 [US4] Create OperationLogger component in src/public/js/components/OperationLogger.js to display: sync operation logs, timing breakdown by phase, state transitions, error details with categorization
+- [X] T041 [US4] Implement GET /api/operations/{id}/logs endpoint in src/api/routes/operations.js to retrieve detailed logs for specific sync operation with full timing data and phase breakdown
+- [X] T042 [P] [US4] Enhance SyncOperationLogger to capture: phase start/end times, records processed per phase, errors per phase, cumulative timing for performance analysis
+- [X] T043 [P] [US4] Create OperationAnalyzer service in src/services/OperationAnalyzer.js to: parse operation logs, identify bottlenecks, suggest performance improvements based on phase timing
+- [X] T044 [US4] Extend dashboard.html to add operation monitoring panel with: log viewer, timing breakdown chart, phase performance analysis, bottleneck identification
+- [X] T045 [US4] Implement log search/filter in OperationLogger component: filter by date range, operation status, error category, affected records, specific error codes
+- [X] T046 [US4] Add test scenario in tests/integration/operationMonitoring.test.js: Run sync operation, verify logs captured, verify timing data complete, verify phase breakdown, verify error details
+- [X] T047 [US4] Update tasks.md to mark T040-T046 as completed after implementation
 
 ---
 

@@ -12,6 +12,8 @@ import NotificationPanel from './components/NotificationPanel.js';
 import SyncHistoryPanel from './components/SyncHistoryPanel.js';
 import BulkResolutionDialog from './components/BulkResolutionDialog.js';
 import ErrorDisplay from './components/ErrorDisplay.js';
+import ConsistencyPanel from './components/ConsistencyPanel.js';
+import OperationLogger from './components/OperationLogger.js';
 import apiClient from './services/apiClient.js';
 
 /**
@@ -33,6 +35,8 @@ class OdooSyncApp {
     this.conflictDetail = new ConflictDetail();
     this.notificationPanel = new NotificationPanel();
     this.errorDisplay = new ErrorDisplay();
+    this.consistencyPanel = new ConsistencyPanel();
+    this.operationLogger = new OperationLogger();
     this.bulkResolutionDialog = new BulkResolutionDialog({
       onPreview: (rule) => apiClient.previewBulkResolution(rule),
       onApply: async (rule) => {
@@ -63,6 +67,8 @@ class OdooSyncApp {
       await this.loadScheduleTab();
       await this.loadHistoryTab();
       await this.loadConflictsTab();
+      await this.loadConsistencyTab();
+      await this.loadOperationsTab();
     } catch (error) {
       console.error('Failed to initialize app:', error);
       this.showError('Failed to initialize application');
@@ -382,6 +388,13 @@ class OdooSyncApp {
               });
               this.showError(error.message);
             }
+          },
+          async () => {
+            this.notificationPanel.show({
+              type: 'info',
+              message: 'Retrying resolution...'
+            });
+            await this.loadConflictsTab();
           }
         );
       }
@@ -396,6 +409,30 @@ class OdooSyncApp {
         preselectedModel: this.conflictsList.modelFilter
       });
     });
+  }
+
+  /**
+   * Load consistency tab data
+   */
+  async loadConsistencyTab() {
+    try {
+      await this.consistencyPanel.init();
+    } catch (error) {
+      console.error('Failed to load consistency tab:', error);
+      this.showError('Failed to load consistency tab');
+    }
+  }
+
+  /**
+   * Load operations tab data
+   */
+  async loadOperationsTab() {
+    try {
+      await this.operationLogger.init();
+    } catch (error) {
+      console.error('Failed to load operations tab:', error);
+      this.showError('Failed to load operations tab');
+    }
   }
 
   async loadModelsForSelector(prefix, sourceSelectId, selector) {

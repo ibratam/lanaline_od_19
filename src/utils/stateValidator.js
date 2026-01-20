@@ -1,8 +1,8 @@
 const CONFLICT_TRANSITIONS = {
   detected: ['resolved'],
-  resolved: ['applied', 'needs_manual_review'],
+  resolved: ['applied', 'needs_manual_review', 'failed_resolution'],
   applied: ['failed_resolution'],
-  failed_resolution: ['applied', 'needs_manual_review'],
+  failed_resolution: ['applied', 'needs_manual_review', 'resolved'],
   needs_manual_review: ['resolved']
 };
 
