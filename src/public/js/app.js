@@ -11,6 +11,7 @@ import ConflictDetail from './components/ConflictDetail.js';
 import NotificationPanel from './components/NotificationPanel.js';
 import SyncHistoryPanel from './components/SyncHistoryPanel.js';
 import BulkResolutionDialog from './components/BulkResolutionDialog.js';
+import ErrorDisplay from './components/ErrorDisplay.js';
 import apiClient from './services/apiClient.js';
 
 /**
@@ -31,6 +32,7 @@ class OdooSyncApp {
     this.conflictsList = new ConflictsList();
     this.conflictDetail = new ConflictDetail();
     this.notificationPanel = new NotificationPanel();
+    this.errorDisplay = new ErrorDisplay();
     this.bulkResolutionDialog = new BulkResolutionDialog({
       onPreview: (rule) => apiClient.previewBulkResolution(rule),
       onApply: async (rule) => {
@@ -242,6 +244,7 @@ class OdooSyncApp {
         this.lastSyncRunId = response.sync_run_id;
         this.progressMonitor.start((status) => {
           this.syncResults.render(status.summary);
+          this.loadSyncFailures();
         });
       } catch (error) {
         this.showError(error.message);
@@ -259,11 +262,14 @@ class OdooSyncApp {
         await apiClient.rollbackSync({ sync_run_id: this.lastSyncRunId });
         this.progressMonitor.start((status) => {
           this.syncResults.render(status.summary);
+          this.loadSyncFailures();
         });
       } catch (error) {
         this.showError(error.message);
       }
     });
+
+    await this.loadSyncFailures();
   }
 
   /**
@@ -291,6 +297,17 @@ class OdooSyncApp {
     container.innerHTML = html;
     this.syncHistoryPanel.attachHandlers(async () => {
       await this.loadHistoryTab();
+    });
+  }
+
+  async loadSyncFailures() {
+    const container = document.getElementById('sync-failures-container');
+    if (!container) return;
+
+    const html = await this.errorDisplay.load();
+    container.innerHTML = html;
+    this.errorDisplay.attachHandlers(async () => {
+      await this.loadSyncFailures();
     });
   }
 

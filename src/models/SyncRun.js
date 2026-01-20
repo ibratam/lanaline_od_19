@@ -124,7 +124,13 @@ export class SyncRun {
         total_records_deleted,
         error_count,
         error_message,
-        rollback_completed_at
+        rollback_completed_at,
+        last_error_code,
+        last_error_category,
+        retry_count,
+        last_retry_at,
+        next_retry_at,
+        state_transitions
       } = data;
 
       const updates = [];
@@ -165,6 +171,30 @@ export class SyncRun {
       if (rollback_completed_at !== undefined) {
         updates.push('rollback_completed_at = ?');
         params.push(rollback_completed_at);
+      }
+      if (last_error_code !== undefined) {
+        updates.push('last_error_code = ?');
+        params.push(last_error_code);
+      }
+      if (last_error_category !== undefined) {
+        updates.push('last_error_category = ?');
+        params.push(last_error_category);
+      }
+      if (retry_count !== undefined) {
+        updates.push('retry_count = ?');
+        params.push(retry_count);
+      }
+      if (last_retry_at !== undefined) {
+        updates.push('last_retry_at = ?');
+        params.push(last_retry_at);
+      }
+      if (next_retry_at !== undefined) {
+        updates.push('next_retry_at = ?');
+        params.push(next_retry_at);
+      }
+      if (state_transitions !== undefined) {
+        updates.push('state_transitions = ?');
+        params.push(state_transitions);
       }
 
       if (updates.length === 0) {

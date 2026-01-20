@@ -279,6 +279,96 @@ textarea {
   gap: 10px;
 }
 
+/* Sync Failures */
+.failure-list {
+  display: grid;
+  gap: 12px;
+}
+
+.failure-card {
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  background: #fff;
+}
+
+.failure-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.failure-title {
+  font-weight: 600;
+}
+
+.failure-subtitle {
+  font-size: 12px;
+  color: #666;
+}
+
+.failure-message {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.failure-details {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: #555;
+}
+
+.failure-action {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #444;
+}
+
+.failure-controls {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.failure-controls input[type="text"] {
+  flex: 1 1 auto;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.badge-user_correctable {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.badge-system {
+  background: #d1ecf1;
+  color: #0c5460;
+}
+
+.badge-unrecoverable {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.badge-neutral {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
 /* Schedule Table */
 .schedule-table {
   width: 100%;

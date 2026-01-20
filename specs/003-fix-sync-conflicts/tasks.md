@@ -97,14 +97,14 @@ Users can identify sync failures with clear diagnostics, understand root causes,
 
 ---
 
-- [ ] T015 [US1] Create SyncFailureTracker in src/services/SyncFailureTracker.js to record sync failures with error category, affected records, root cause, and suggested corrections
-- [ ] T016 [US1] Enhance POST /api/sync/execute endpoint in src/api/routes/sync.js to capture and categorize sync errors, store in SyncFailure model, return error code + category + suggested actions
-- [ ] T017 [US1] Extend GET /api/sync/history endpoint to include error details, retry count, last_error, and suggested corrective actions per failure
-- [ ] T018 [P] [US1] Implement POST /api/sync/retry endpoint in src/api/routes/sync.js to allow retry of failed sync with validation that user has had time to apply fixes
-- [ ] T019 [P] [US1] Create ErrorDisplay component in src/public/js/components/ErrorDisplay.js to show error category, user-facing message, and suggested corrective actions in dashboard
-- [ ] T020 [US1] Extend dashboard.html to add sync failures panel showing: operation status, error category, affected records, retry history, retry button
-- [ ] T021 [US1] Add test scenario in tests/integration/syncFailureRecovery.test.js: Create failing sync, verify error displayed, apply fix, retry, verify success
-- [ ] T022 [US1] Update tasks.md to mark T015-T021 as completed after implementation
+- [X] T015 [US1] Create SyncFailureTracker in src/services/SyncFailureTracker.js to record sync failures with error category, affected records, root cause, and suggested corrections
+- [X] T016 [US1] Enhance POST /api/sync/execute endpoint in src/api/routes/sync.js to capture and categorize sync errors, store in SyncFailure model, return error code + category + suggested actions
+- [X] T017 [US1] Extend GET /api/sync/history endpoint to include error details, retry count, last_error, and suggested corrective actions per failure
+- [X] T018 [P] [US1] Implement POST /api/sync/retry endpoint in src/api/routes/sync.js to allow retry of failed sync with validation that user has had time to apply fixes
+- [X] T019 [P] [US1] Create ErrorDisplay component in src/public/js/components/ErrorDisplay.js to show error category, user-facing message, and suggested corrective actions in dashboard
+- [X] T020 [US1] Extend dashboard.html to add sync failures panel showing: operation status, error category, affected records, retry history, retry button
+- [X] T021 [US1] Add test scenario in tests/integration/syncFailureRecovery.test.js: Create failing sync, verify error displayed, apply fix, retry, verify success
+- [X] T022 [US1] Update tasks.md to mark T015-T021 as completed after implementation
 
 ---
 

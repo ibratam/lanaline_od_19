@@ -11,6 +11,7 @@ import OdooClient from '../../services/OdooClient.js';
 import HistoryLogger from '../../services/HistoryLogger.js';
 import DataPreserver from '../../services/DataPreserver.js';
 import SyncRun from '../../models/SyncRun.js';
+import SyncFailureTracker from '../../services/SyncFailureTracker.js';
 
 const syncState = {
   current: null,
@@ -34,6 +35,9 @@ export function createSyncRouter(db, services) {
   const historyLogger = new HistoryLogger(db);
   const dataPreserver = new DataPreserver();
   const syncRunModel = new SyncRun(db.getDB());
+  const failureTracker = new SyncFailureTracker(db);
+
+  const MIN_RETRY_WAIT_MS = process.env.NODE_ENV === 'test' ? 0 : 5000;
 
   /**
    * GET /api/sync/models
@@ -184,7 +188,66 @@ export function createSyncRouter(db, services) {
       updated_at: syncState.current.updated_at || null,
       completed_at: syncState.current.completed_at || null,
       summary: syncState.current.summary || null,
-      error: syncState.current.error || null
+      error: syncState.current.error || null,
+      error_code: syncState.current.error_code || null,
+      error_category: syncState.current.error_category || null,
+      suggested_action: syncState.current.suggested_action || null
+    });
+  }));
+
+  /**
+   * GET /api/sync/history
+   * List sync runs with failure details and retry history
+   */
+  router.get('/history', asyncHandler(async (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 10, 50);
+    const offset = Number(req.query.offset) || 0;
+    const status = req.query.status || undefined;
+
+    const params = [];
+    let sql = 'SELECT * FROM sync_runs WHERE 1=1';
+    if (status) {
+      sql += ' AND status = ?';
+      params.push(status);
+    }
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const items = db.getDB().prepare(sql).all(...params);
+    const total = syncRunModel.getCount({ status });
+
+    const failuresStmt = db.getDB().prepare(`
+      SELECT * FROM sync_failures
+      WHERE sync_run_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `);
+
+    const retryStmt = db.getDB().prepare(`
+      SELECT * FROM retry_history
+      WHERE sync_run_id = ?
+      ORDER BY created_at DESC
+      LIMIT 5
+    `);
+
+    const enriched = items.map(run => {
+      const lastFailure = failuresStmt.get(run.id) || null;
+      const retryHistory = retryStmt.all(run.id);
+      return {
+        ...run,
+        model_filter: run.model_filter ? JSON.parse(run.model_filter) : null,
+        last_failure: lastFailure,
+        last_error: lastFailure?.error_message || null,
+        suggested_action: lastFailure?.suggested_action || null,
+        retry_history: retryHistory
+      };
+    });
+
+    res.json({
+      items: enriched,
+      total,
+      limit,
+      offset
     });
   }));
 
@@ -196,7 +259,8 @@ export function createSyncRouter(db, services) {
     const {
       source_db_id,
       target_db_id,
-      model_filter
+      model_filter,
+      simulate_error
     } = req.body;
 
     if (!source_db_id || !target_db_id) {
@@ -274,12 +338,19 @@ export function createSyncRouter(db, services) {
           await targetClient.authenticate();
         }
 
+        if (mockMode && simulate_error) {
+          const simulated = new Error('Simulated sync failure for testing');
+          simulated.code = 'SE-TEST';
+          throw simulated;
+        }
+
         const result = await syncEngine.executeSync({
           sourceClient,
           targetClient,
           modelFilter: model_filter,
           dataPreserver,
           mock: mockMode,
+          syncRunId: syncRun.id,
           progressCallback: (progress) => {
             updateSyncState({
               ...progress
@@ -325,6 +396,11 @@ export function createSyncRouter(db, services) {
       } catch (error) {
         const completedAt = new Date().toISOString();
         const durationMs = Date.now() - startedAt;
+        const failureResult = failureTracker.recordFailure({
+          syncRunId: syncRun.id,
+          error,
+          failureReason: 'sync_execute'
+        });
         historyLogger.commitRunLogs(
           syncRun.id,
           {
@@ -332,7 +408,9 @@ export function createSyncRouter(db, services) {
             completed_at: completedAt,
             duration_ms: durationMs,
             error_count: 1,
-            error_message: error.message
+            error_message: error.message,
+            last_error_code: failureResult.errorCode,
+            last_error_category: failureResult.category
           },
           [],
           [{
@@ -345,7 +423,246 @@ export function createSyncRouter(db, services) {
         updateSyncState({
           status: 'failed',
           completed_at: completedAt,
-          error: error.message
+          error: error.message,
+          error_code: failureResult.errorCode,
+          error_category: failureResult.category,
+          suggested_action: failureResult.suggestedAction
+        });
+      } finally {
+        try {
+          await sourceClient.close();
+        } catch {
+          // ignore close errors
+        }
+        try {
+          await targetClient.close();
+        } catch {
+          // ignore close errors
+        }
+      }
+    })();
+  }));
+
+  /**
+   * POST /api/sync/retry
+   * Retry a failed synchronization after user corrections
+   */
+  router.post('/retry', asyncHandler(async (req, res) => {
+    const { sync_run_id, user_correction } = req.body;
+    const runId = Number(sync_run_id);
+    if (!Number.isFinite(runId)) {
+      throw new ValidationError('sync_run_id is required');
+    }
+
+    if (syncState.current && syncState.current.status === 'running') {
+      throw new ConflictError('A synchronization is already in progress');
+    }
+
+    const previousRun = syncRunModel.getById(runId);
+    if (!previousRun) {
+      throw new NotFoundError(`Sync run ${runId} not found`);
+    }
+
+    if (previousRun.status !== 'failed') {
+      throw new ValidationError('Only failed sync runs can be retried');
+    }
+
+    const lastFailure = db.getDB().prepare(`
+      SELECT * FROM sync_failures
+      WHERE sync_run_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(runId);
+
+    if (!lastFailure) {
+      throw new NotFoundError('No failure record found for this sync run');
+    }
+
+    const lastRetryAt = previousRun.last_retry_at || lastFailure.created_at;
+    if (lastRetryAt) {
+      const elapsedMs = Date.now() - new Date(lastRetryAt).getTime();
+      if (elapsedMs < MIN_RETRY_WAIT_MS) {
+        throw new ValidationError('Please wait before retrying to allow for corrections');
+      }
+    }
+
+    const retryCount = (previousRun.retry_count || 0) + 1;
+    const retryAt = new Date().toISOString();
+
+    syncRunModel.update(runId, {
+      retry_count: retryCount,
+      last_retry_at: retryAt
+    });
+
+    db.getDB().prepare(`
+      UPDATE sync_failures
+      SET retry_count = ?, last_retry_at = ?
+      WHERE id = ?
+    `).run(retryCount, retryAt, lastFailure.id);
+
+    const errorForHistory = new Error(lastFailure.error_message || 'Sync failure');
+    errorForHistory.code = lastFailure.error_code || undefined;
+    failureTracker.recordRetry({
+      syncRunId: runId,
+      error: errorForHistory,
+      userCorrection: user_correction || null
+    });
+
+    const sourceConnection = await configManager.getConnectionWithPassword(previousRun.source_db_id);
+    const targetConnection = await configManager.getConnectionWithPassword(previousRun.target_db_id);
+
+    if (!sourceConnection) {
+      throw new NotFoundError(`Source database ${previousRun.source_db_id} not found`);
+    }
+
+    if (!targetConnection) {
+      throw new NotFoundError(`Target database ${previousRun.target_db_id} not found`);
+    }
+
+    const modelFilter = previousRun.model_filter ? JSON.parse(previousRun.model_filter) : null;
+
+    const syncRun = historyLogger.createRun({
+      source_db_id: previousRun.source_db_id,
+      target_db_id: previousRun.target_db_id,
+      status: 'running',
+      triggered_by: 'retry',
+      model_filter: modelFilter || null,
+      preview_only: 0
+    });
+
+    updateSyncState({
+      status: 'running',
+      sync_run_id: syncRun.id,
+      started_at: new Date().toISOString(),
+      current_model: null,
+      records_processed: 0,
+      total_records: 0,
+      percentage: 0,
+      summary: null,
+      error: null,
+      error_code: null,
+      error_category: null,
+      suggested_action: null
+    });
+
+    res.status(202).json({
+      status: 'running',
+      sync_run_id: syncRun.id,
+      retry_of: runId,
+      message: 'Synchronization retry started'
+    });
+
+    const sourceClient = new OdooClient(
+      sourceConnection.url,
+      sourceConnection.database_name,
+      sourceConnection.username,
+      sourceConnection.password
+    );
+
+    const targetClient = new OdooClient(
+      targetConnection.url,
+      targetConnection.database_name,
+      targetConnection.username,
+      targetConnection.password
+    );
+
+    const syncEngine = new SyncEngine(sourceClient);
+    const mockMode = process.env.NODE_ENV === 'test';
+    const startedAt = Date.now();
+
+    (async () => {
+      try {
+        if (!mockMode) {
+          await sourceClient.authenticate();
+          await targetClient.authenticate();
+        }
+
+        const result = await syncEngine.executeSync({
+          sourceClient,
+          targetClient,
+          modelFilter,
+          dataPreserver,
+          mock: mockMode,
+          syncRunId: syncRun.id,
+          progressCallback: (progress) => {
+            updateSyncState({
+              ...progress
+            });
+          }
+        });
+
+        const completedAt = new Date().toISOString();
+        historyLogger.commitRunLogs(
+          syncRun.id,
+          {
+            status: 'completed',
+            completed_at: completedAt,
+            duration_ms: result.summary.duration_ms,
+            total_records_created: result.summary.total_records_created,
+            total_records_updated: result.summary.total_records_updated,
+            total_records_deleted: result.summary.total_records_deleted,
+            error_count: result.errors.length,
+            error_message: null
+          },
+          result.operations,
+          result.errors
+        );
+
+        updateSyncState({
+          status: 'completed',
+          completed_at: completedAt,
+          current_model: null,
+          records_processed: result.summary.total_records,
+          total_records: result.summary.total_records,
+          percentage: 100,
+          summary: result.summary,
+          error: null,
+          error_code: null,
+          error_category: null,
+          suggested_action: null
+        });
+
+        syncState.lastCompleted = {
+          sync_run_id: syncRun.id,
+          source_db_id: previousRun.source_db_id,
+          target_db_id: previousRun.target_db_id,
+          rollback_operations: result.rollback_operations,
+          summary: result.summary
+        };
+      } catch (error) {
+        const completedAt = new Date().toISOString();
+        const durationMs = Date.now() - startedAt;
+        const failureResult = failureTracker.recordFailure({
+          syncRunId: syncRun.id,
+          error,
+          failureReason: 'sync_retry'
+        });
+        historyLogger.commitRunLogs(
+          syncRun.id,
+          {
+            status: 'failed',
+            completed_at: completedAt,
+            duration_ms: durationMs,
+            error_count: 1,
+            error_message: error.message,
+            last_error_code: failureResult.errorCode,
+            last_error_category: failureResult.category
+          },
+          [],
+          [{
+            error_type: 'sync_error',
+            error_message: error.message,
+            stack_trace: error.stack
+          }]
+        );
+
+        updateSyncState({
+          status: 'failed',
+          completed_at: completedAt,
+          error: error.message,
+          error_code: failureResult.errorCode,
+          error_category: failureResult.category,
+          suggested_action: failureResult.suggestedAction
         });
       } finally {
         try {

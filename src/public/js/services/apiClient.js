@@ -132,9 +132,19 @@ class APIClient {
     return this.post('/sync/rollback', data);
   }
 
+  async retrySync(data) {
+    return this.post('/sync/retry', data);
+  }
+
   async getSyncModels(sourceDbId) {
     const query = new URLSearchParams({ source_db_id: String(sourceDbId) });
     return this.get(`/sync/models?${query.toString()}`);
+  }
+
+  async getSyncHistory(params = {}) {
+    const query = this.buildQuery(params);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.get(`/sync/history${suffix}`);
   }
 
   // Schedule endpoints
