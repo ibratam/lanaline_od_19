@@ -31,6 +31,9 @@
       <button class="tab-btn" data-tab="history">
         📋 History
       </button>
+      <button class="tab-btn" data-tab="conflicts">
+        ⚠️ Conflicts
+      </button>
     </nav>
 
     <!-- Tab Content -->
@@ -101,6 +104,16 @@
         <h2>Synchronization History</h2>
         <div id="history-container">
           <p class="text-muted">View past synchronization operations.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Conflicts Tab -->
+    <div id="conflicts" class="tab-content hidden">
+      <div class="card">
+        <h2>Conflict Resolution</h2>
+        <div id="conflicts-container">
+          <p class="text-muted">Loading conflicts...</p>
         </div>
       </div>
     </div>

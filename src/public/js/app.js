@@ -6,6 +6,11 @@ import SyncResults from './components/SyncResults.js';
 import ScheduleEditor from './components/ScheduleEditor.js';
 import HistoryTable from './components/HistoryTable.js';
 import ModelSelector from './components/ModelSelector.js';
+import ConflictsList from './components/ConflictsList.js';
+import ConflictDetail from './components/ConflictDetail.js';
+import NotificationPanel from './components/NotificationPanel.js';
+import SyncHistoryPanel from './components/SyncHistoryPanel.js';
+import BulkResolutionDialog from './components/BulkResolutionDialog.js';
 import apiClient from './services/apiClient.js';
 
 /**
@@ -20,8 +25,26 @@ class OdooSyncApp {
     this.syncResults = new SyncResults();
     this.scheduleEditor = new ScheduleEditor();
     this.historyTable = new HistoryTable();
+    this.syncHistoryPanel = new SyncHistoryPanel();
     this.previewModelSelector = new ModelSelector();
     this.syncModelSelector = new ModelSelector();
+    this.conflictsList = new ConflictsList();
+    this.conflictDetail = new ConflictDetail();
+    this.notificationPanel = new NotificationPanel();
+    this.bulkResolutionDialog = new BulkResolutionDialog({
+      onPreview: (rule) => apiClient.previewBulkResolution(rule),
+      onApply: async (rule) => {
+        const result = await apiClient.applyBulkResolution(rule);
+        this.notificationPanel.show({
+          type: result.failed_count ? 'error' : 'success',
+          message: `Bulk resolved ${result.resolved_count} conflicts (${result.failed_count} failed).`
+        });
+        return result;
+      },
+      onClose: () => {
+        this.loadConflictsTab();
+      }
+    });
     this.activeTab = 'config';
     this.lastSyncRunId = null;
   }
@@ -37,6 +60,7 @@ class OdooSyncApp {
       await this.loadSyncTab();
       await this.loadScheduleTab();
       await this.loadHistoryTab();
+      await this.loadConflictsTab();
     } catch (error) {
       console.error('Failed to initialize app:', error);
       this.showError('Failed to initialize application');
@@ -263,10 +287,97 @@ class OdooSyncApp {
     const container = document.getElementById('history-container');
     if (!container) return;
 
-    const html = await this.historyTable.load();
+    const html = await this.syncHistoryPanel.load();
     container.innerHTML = html;
-    this.historyTable.attachHandlers(async () => {
+    this.syncHistoryPanel.attachHandlers(async () => {
       await this.loadHistoryTab();
+    });
+  }
+
+  /**
+   * Load conflicts tab data
+   */
+  async loadConflictsTab() {
+    const container = document.getElementById('conflicts-container');
+    if (!container) return;
+
+    const html = await this.conflictsList.load();
+    container.innerHTML = `
+      ${this.notificationPanel.render()}
+      <div class="conflicts-layout">
+        <div class="conflicts-list">
+          ${html}
+        </div>
+        <div class="conflicts-detail" id="conflict-detail">
+          <p class="text-muted">Select a conflict to view details.</p>
+        </div>
+      </div>
+      <div id="bulk-resolution-root"></div>
+    `;
+
+    this.bulkResolutionDialog.mount(document.getElementById('bulk-resolution-root'));
+
+    this.conflictsList.attachHandlers(
+      async () => {
+        await this.loadConflictsTab();
+      },
+      async (id) => {
+        const detailHtml = await this.conflictDetail.load(id);
+        const detailContainer = document.getElementById('conflict-detail');
+        if (detailContainer) {
+          detailContainer.innerHTML = detailHtml;
+        }
+
+        this.conflictDetail.attachHandlers(
+          async (conflictId, choice) => {
+            try {
+              await apiClient.resolveConflict(conflictId, {
+                chosen_version: choice,
+                user_id: 1
+              });
+              this.notificationPanel.show({
+                type: 'success',
+                message: 'Conflict resolved. Ready to apply.'
+              });
+              await this.loadConflictsTab();
+            } catch (error) {
+              this.notificationPanel.show({
+                type: 'error',
+                message: error.message,
+                errorCode: 'UC-RESOLVE'
+              });
+              this.showError(error.message);
+            }
+          },
+          async (conflictId) => {
+            try {
+              await apiClient.applyConflict(conflictId);
+              this.notificationPanel.show({
+                type: 'info',
+                message: 'Applying resolution...'
+              });
+              await this.loadConflictsTab();
+            } catch (error) {
+              this.notificationPanel.show({
+                type: 'error',
+                message: error.message,
+                errorCode: 'SE-APPLY'
+              });
+              this.showError(error.message);
+            }
+          }
+        );
+      }
+    );
+
+    document.getElementById('conflicts-bulk-open')?.addEventListener('click', () => {
+      const models = [...new Set(this.conflictsList.conflicts
+        .map(conflict => conflict.odoo_model)
+        .filter(Boolean))].sort();
+      this.bulkResolutionDialog.open({
+        models,
+        preselectedModel: this.conflictsList.modelFilter
+      });
     });
   }
 
@@ -331,6 +442,7 @@ class OdooSyncApp {
     await this.loadSyncTab();
     await this.loadScheduleTab();
     await this.loadHistoryTab();
+    await this.loadConflictsTab();
   }
 
   /**

@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
   target_create_date DATETIME,
   source_write_date DATETIME,
   target_write_date DATETIME,
+  state TEXT DEFAULT 'detected',
+  locked_by INTEGER,
+  locked_at DATETIME,
   resolution TEXT, -- keep_source, keep_target, skip, null = unresolved
   resolved_at DATETIME,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -121,5 +124,41 @@ CREATE INDEX IF NOT EXISTS idx_sync_operations_sync_run_id ON sync_operations(sy
 CREATE INDEX IF NOT EXISTS idx_sync_operations_model ON sync_operations(odoo_model);
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_sync_run_id ON sync_conflicts(sync_run_id);
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_model_record ON sync_conflicts(odoo_model, record_id);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_state ON sync_conflicts(state);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_model_state ON sync_conflicts(odoo_model, state);
+
+-- Conflict Resolutions table
+CREATE TABLE IF NOT EXISTS conflict_resolutions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conflict_id INTEGER NOT NULL UNIQUE,
+  user_id INTEGER,
+  chosen_version TEXT NOT NULL CHECK (chosen_version IN ('local', 'odoo')),
+  resolved_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  applied_at DATETIME,
+  retry_count INTEGER DEFAULT 0,
+  last_error TEXT,
+  last_error_category TEXT CHECK (last_error_category IS NULL OR last_error_category IN ('user_correctable', 'system', 'unrecoverable')),
+  last_retry_at DATETIME,
+  next_retry_at DATETIME,
+  FOREIGN KEY(conflict_id) REFERENCES sync_conflicts(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_conflict_resolutions_conflict ON conflict_resolutions(conflict_id);
+CREATE INDEX IF NOT EXISTS idx_conflict_resolutions_user ON conflict_resolutions(user_id);
+
+-- Conflict Locks table
+CREATE TABLE IF NOT EXISTS conflict_locks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  conflict_id INTEGER NOT NULL,
+  session_id TEXT NOT NULL,
+  user_id INTEGER,
+  locked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at DATETIME NOT NULL,
+  FOREIGN KEY(conflict_id) REFERENCES sync_conflicts(id) ON DELETE CASCADE,
+  UNIQUE(conflict_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conflict_locks_session ON conflict_locks(session_id);
+CREATE INDEX IF NOT EXISTS idx_conflict_locks_expires ON conflict_locks(expires_at);
 CREATE INDEX IF NOT EXISTS idx_sync_schedules_enabled ON sync_schedules(enabled);
 CREATE INDEX IF NOT EXISTS idx_sync_errors_sync_run_id ON sync_errors(sync_run_id);

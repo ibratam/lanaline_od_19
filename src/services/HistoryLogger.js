@@ -77,6 +77,55 @@ export class HistoryLogger {
       ...operation
     });
   }
+
+  /**
+   * Query operations by status
+   */
+  queryByState(state, limit = 50, offset = 0) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM sync_operations
+      WHERE status = ?
+      ORDER BY created_at DESC
+      LIMIT ? OFFSET ?
+    `);
+    return stmt.all(state, limit, offset);
+  }
+
+  /**
+   * Query operations by model
+   */
+  queryByModel(model, limit = 50) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM sync_operations
+      WHERE odoo_model = ?
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(model, limit);
+  }
+
+  /**
+   * Query operations by date range
+   */
+  queryByDateRange(start, end) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM sync_operations
+      WHERE created_at BETWEEN ? AND ?
+      ORDER BY created_at DESC
+    `);
+    return stmt.all(start, end);
+  }
+
+  /**
+   * Get operation details by ID
+   */
+  getDetails(operationId) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM sync_operations
+      WHERE id = ?
+    `);
+    return stmt.get(operationId);
+  }
 }
 
 export default HistoryLogger;

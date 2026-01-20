@@ -1,7 +1,39 @@
 import logger from '../../utils/logger.js';
+import { sanitizeErrorMessage } from '../../utils/errorSanitizer.js';
 
 /**
- * Centralized error handling middleware
+ * Categorize error for appropriate user messaging and retry strategy
+ * Maps errors to UC (user correctable), SE (system), or UR (unrecoverable)
+ */
+function categorizeError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  const code = String(error?.code || '').toUpperCase();
+
+  // User-Correctable (UC-001-999)
+  if (code.startsWith('UC') ||
+      message.includes('validation') ||
+      message.includes('required field') ||
+      message.includes('constraint violation') ||
+      message.includes('conflict is locked')) {
+    return { category: 'user_correctable', prefix: 'UC' };
+  }
+
+  // System Errors (SE-001-999)
+  if (code.startsWith('SE') ||
+      message.includes('timeout') ||
+      message.includes('network') ||
+      message.includes('econnrefused') ||
+      message.includes('enotfound') ||
+      message.includes('temporarily unavailable')) {
+    return { category: 'system', prefix: 'SE' };
+  }
+
+  // Unrecoverable (UR-001-999)
+  return { category: 'unrecoverable', prefix: 'UR' };
+}
+
+/**
+ * Centralized error handling middleware with error categorization
  */
 export function errorHandler(err, req, res) {
   const {
@@ -9,16 +41,37 @@ export function errorHandler(err, req, res) {
     details = null
   } = err;
   const responseStatus = err.status ?? err.statusCode ?? 500;
-  const code = err.code ?? 'INTERNAL_ERROR';
+  let code = err.code ?? 'INTERNAL_ERROR';
 
-  // Log error
+  // Categorize error and assign error code with prefix if not already assigned
+  const errorCategory = categorizeError(err);
+  if (!code.includes('-') && !code.startsWith('UC') && !code.startsWith('SE') && !code.startsWith('UR')) {
+    // Generate error code with appropriate prefix
+    const errorNum = Math.floor(Math.random() * 999) + 1;
+    code = `${errorCategory.prefix}-${String(errorNum).padStart(3, '0')}`;
+  }
+
+  // Prepare user-facing message (sanitized)
+  let userMessage = sanitizeErrorMessage(message, errorCategory.category);
+  if (errorCategory.category === 'user_correctable') {
+    userMessage = sanitizeErrorMessage(message, 'user_correctable');
+  } else if (errorCategory.category === 'system') {
+    userMessage = 'A temporary system error occurred. The system will retry automatically.';
+  } else {
+    userMessage = 'An unrecoverable error occurred. Please contact support.';
+  }
+
+  // Log full error details internally
   logger.error('Request error:', {
     path: req.path,
     method: req.method,
     status: responseStatus,
+    code,
+    category: errorCategory.category,
     message,
     error: err.message,
-    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    userDetails: details
   });
 
   // Send response
@@ -26,7 +79,8 @@ export function errorHandler(err, req, res) {
     error: true,
     status: responseStatus,
     code,
-    message,
+    category: errorCategory.category,
+    message: userMessage,
     details: process.env.NODE_ENV === 'development' ? details || err.message : null,
     timestamp: new Date().toISOString()
   });
