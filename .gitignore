@@ -17,4 +17,4 @@ data/*.log
 *.swp
 *.swo
 Thumbs.db
-data/
+data
