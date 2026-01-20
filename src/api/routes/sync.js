@@ -13,6 +13,8 @@ import HistoryLogger from '../../services/HistoryLogger.js';
 import DataPreserver from '../../services/DataPreserver.js';
 import SyncRun from '../../models/SyncRun.js';
 import SyncFailureTracker from '../../services/SyncFailureTracker.js';
+import TableCreator from '../../services/TableCreator.js';
+import TableCreationNotifier from '../../services/TableCreationNotifier.js';
 
 const syncState = {
   current: null,
@@ -380,6 +382,58 @@ export function createSyncRouter(db, services) {
           const simulated = new Error('Simulated sync failure for testing');
           simulated.code = 'SE-TEST';
           throw simulated;
+        }
+
+        // Check for and create missing tables
+        try {
+          const tableCreator = new TableCreator(db, sourceClient, targetClient);
+          const tableNotifier = new TableCreationNotifier();
+
+          const models = await sourceClient.getModels();
+          const tableNames = models.map(m => m.model.replace(/\./g, '_'));
+
+          const missingTables = await tableCreator.detectMissingTables(tableNames);
+
+          if (missingTables.length > 0) {
+            logger.info(`Detected ${missingTables.length} missing tables, attempting creation`);
+            updateSyncState({
+              status: 'running',
+              current_phase: 'creating_missing_tables',
+              missing_tables_count: missingTables.length
+            });
+
+            for (const tableName of missingTables) {
+              try {
+                tableNotifier.notifyMissingTable(tableName);
+                tableNotifier.notifyCreationProgress(tableName, 'starting');
+
+                const schema = await tableCreator.discoverSchema(tableName);
+                const dependencies = await tableCreator.resolveDependencies(tableName, schema);
+
+                tableNotifier.notifyDependencyResolution(tableName, dependencies);
+
+                await tableCreator.createTable(tableName, schema, dependencies);
+                await tableCreator.createIndexes(tableName, schema);
+
+                tableNotifier.notifyTableCreationSuccess(tableName, {
+                  column_count: schema.columns ? schema.columns.length : 0,
+                  dependencies_resolved: dependencies.length
+                });
+
+                logger.info(`Successfully created missing table: ${tableName}`);
+              } catch (createError) {
+                logger.warn(`Failed to create table ${tableName}: ${createError.message}`);
+                tableNotifier.notifyTableCreationFailure(tableName, createError);
+              }
+            }
+
+            updateSyncState({
+              status: 'running',
+              current_phase: 'syncing'
+            });
+          }
+        } catch (tableCheckError) {
+          logger.warn(`Table creation check failed: ${tableCheckError.message}, continuing with sync`);
         }
 
         const result = await syncEngine.executeSync({

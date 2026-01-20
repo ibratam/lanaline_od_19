@@ -209,15 +209,15 @@ Implement automatic table creation with dependency resolution to handle missing 
 
 ---
 
-- [ ] T048 [P] Create TableCreator service in src/services/TableCreator.js to: detect missing target tables, discover schema from source, resolve dependencies (FK references, indexes), create tables with constraints
-- [ ] T049 [P] Implement GET /api/tables/missing endpoint in src/api/routes/tables.js to identify missing target tables and their dependencies
-- [ ] T050 Create TableCreationNotifier in src/services/TableCreationNotifier.js to: notify user of missing table, show creation progress, confirm successful creation with table name and column count
-- [ ] T051 Enhance POST /api/sync/execute to: detect missing tables before sync, create missing tables with dependencies, notify user, then proceed with sync
-- [ ] T052 [P] Create CreateTablePanel component in src/public/js/components/CreateTablePanel.js to show: missing table name, creation progress, estimated time, confirmation of successful creation
-- [ ] T053 Create POST /api/tables/create endpoint to: initiate table creation, track progress, return status updates to frontend for real-time feedback
-- [ ] T054 Create migration script in src/db/migrations/005_extend_table_metadata.js to add columns for tracking table creation attempts and dependencies
-- [ ] T055 Add test scenario in tests/integration/tableAutoCreation.test.js: Detect missing table, initiate creation, verify table created with dependencies, verify audit log entry
-- [ ] T056 Update tasks.md to mark T048-T055 as completed after implementation
+- [X] T048 [P] Create TableCreator service in src/services/TableCreator.js to: detect missing target tables, discover schema from source, resolve dependencies (FK references, indexes), create tables with constraints
+- [X] T049 [P] Implement GET /api/tables/missing endpoint in src/api/routes/tables.js to identify missing target tables and their dependencies
+- [X] T050 Create TableCreationNotifier in src/services/TableCreationNotifier.js to: notify user of missing table, show creation progress, confirm successful creation with table name and column count
+- [X] T051 Enhance POST /api/sync/execute to: detect missing tables before sync, create missing tables with dependencies, notify user, then proceed with sync
+- [X] T052 [P] Create CreateTablePanel component in src/public/js/components/CreateTablePanel.js to show: missing table name, creation progress, estimated time, confirmation of successful creation
+- [X] T053 Create POST /api/tables/create endpoint to: initiate table creation, track progress, return status updates to frontend for real-time feedback
+- [X] T054 Create migration script in src/db/migrations/005_extend_table_metadata.js to add columns for tracking table creation attempts and dependencies
+- [X] T055 Add test scenario in tests/integration/tableAutoCreation.test.js: Detect missing table, initiate creation, verify table created with dependencies, verify audit log entry
+- [X] T056 Update tasks.md to mark T048-T055 as completed after implementation
 
 ---
 

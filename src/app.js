@@ -12,6 +12,7 @@ import createHistoryRouter from './api/routes/history.js';
 import createConflictsRouter from './api/routes/conflicts.js';
 import createConsistencyRouter from './api/routes/consistency.js';
 import createOperationsRouter from './api/routes/operations.js';
+import createTablesRouter from './api/routes/tables.js';
 import ConfigManager from './services/ConfigManager.js';
 import ScheduleManager from './services/ScheduleManager.js';
 import HistoryLogger from './services/HistoryLogger.js';
@@ -90,8 +91,7 @@ export function createApp(db) {
   app.use('/api/conflicts', createConflictsRouter(db, services));
   app.use('/api/consistency', createConsistencyRouter(db, services));
   app.use('/api/operations', createOperationsRouter(db, services));
-
-  // TODO: Add more API routes if needed
+  app.use('/api/tables', createTablesRouter(db, services));
 
   // Error handling middleware (must be last)
   app.use(errorHandler);
