@@ -23,6 +23,34 @@ export async function initializeDatabase(dbPath = null) {
 
     const sqlite = db.getDB();
     sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS retry_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sync_run_id INTEGER,
+        sync_operation_id INTEGER,
+        conflict_id INTEGER,
+        error_code TEXT,
+        error_category TEXT CHECK (error_category IS NULL OR error_category IN ('user_correctable', 'system', 'unrecoverable')),
+        error_message TEXT,
+        user_correction TEXT,
+        next_retry_at DATETIME,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE,
+        FOREIGN KEY (sync_operation_id) REFERENCES sync_operations(id) ON DELETE SET NULL,
+        FOREIGN KEY (conflict_id) REFERENCES sync_conflicts(id) ON DELETE SET NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS sync_operation_status (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sync_operation_id INTEGER NOT NULL,
+        previous_status TEXT,
+        status TEXT NOT NULL,
+        error_code TEXT,
+        error_category TEXT CHECK (error_category IS NULL OR error_category IN ('user_correctable', 'system', 'unrecoverable')),
+        note TEXT,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (sync_operation_id) REFERENCES sync_operations(id) ON DELETE CASCADE
+      );
+
       CREATE TABLE IF NOT EXISTS sync_failures (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         sync_run_id INTEGER NOT NULL,
@@ -68,6 +96,9 @@ export async function initializeDatabase(dbPath = null) {
 
       CREATE INDEX IF NOT EXISTS idx_sync_failures_run ON sync_failures(sync_run_id);
       CREATE INDEX IF NOT EXISTS idx_sync_failures_category ON sync_failures(error_category);
+      CREATE INDEX IF NOT EXISTS idx_retry_history_run ON retry_history(sync_run_id);
+      CREATE INDEX IF NOT EXISTS idx_retry_history_conflict ON retry_history(conflict_id);
+      CREATE INDEX IF NOT EXISTS idx_sync_operation_status_operation ON sync_operation_status(sync_operation_id);
       CREATE INDEX IF NOT EXISTS idx_table_schemas_name ON table_schemas(table_name);
       CREATE INDEX IF NOT EXISTS idx_data_inconsistencies_type ON data_inconsistencies(inconsistency_type);
     `);

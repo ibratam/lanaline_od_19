@@ -127,6 +127,36 @@ CREATE TABLE IF NOT EXISTS sync_errors (
   FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE
 );
 
+-- Retry History table
+CREATE TABLE IF NOT EXISTS retry_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sync_run_id INTEGER,
+  sync_operation_id INTEGER,
+  conflict_id INTEGER,
+  error_code TEXT,
+  error_category TEXT CHECK (error_category IS NULL OR error_category IN ('user_correctable', 'system', 'unrecoverable')),
+  error_message TEXT,
+  user_correction TEXT,
+  next_retry_at DATETIME,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE,
+  FOREIGN KEY (sync_operation_id) REFERENCES sync_operations(id) ON DELETE SET NULL,
+  FOREIGN KEY (conflict_id) REFERENCES sync_conflicts(id) ON DELETE SET NULL
+);
+
+-- Sync Operation Status table
+CREATE TABLE IF NOT EXISTS sync_operation_status (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  sync_operation_id INTEGER NOT NULL,
+  previous_status TEXT,
+  status TEXT NOT NULL, -- queued, running, completed, failed, needs_review
+  error_code TEXT,
+  error_category TEXT CHECK (error_category IS NULL OR error_category IN ('user_correctable', 'system', 'unrecoverable')),
+  note TEXT,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (sync_operation_id) REFERENCES sync_operations(id) ON DELETE CASCADE
+);
+
 -- Sync Failures table
 CREATE TABLE IF NOT EXISTS sync_failures (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -222,6 +252,9 @@ CREATE INDEX IF NOT EXISTS idx_conflict_locks_session ON conflict_locks(session_
 CREATE INDEX IF NOT EXISTS idx_conflict_locks_expires ON conflict_locks(expires_at);
 CREATE INDEX IF NOT EXISTS idx_sync_schedules_enabled ON sync_schedules(enabled);
 CREATE INDEX IF NOT EXISTS idx_sync_errors_sync_run_id ON sync_errors(sync_run_id);
+CREATE INDEX IF NOT EXISTS idx_retry_history_run ON retry_history(sync_run_id);
+CREATE INDEX IF NOT EXISTS idx_retry_history_conflict ON retry_history(conflict_id);
+CREATE INDEX IF NOT EXISTS idx_sync_operation_status_operation ON sync_operation_status(sync_operation_id);
 CREATE INDEX IF NOT EXISTS idx_sync_failures_run ON sync_failures(sync_run_id);
 CREATE INDEX IF NOT EXISTS idx_sync_failures_category ON sync_failures(error_category);
 CREATE INDEX IF NOT EXISTS idx_table_schemas_name ON table_schemas(table_name);

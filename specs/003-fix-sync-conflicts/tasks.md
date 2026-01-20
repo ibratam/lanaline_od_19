@@ -68,14 +68,14 @@ Build core services that all user stories depend on: error categorization, retry
 
 ---
 
-- [ ] T007 Implement ErrorCategorizer service in src/services/ErrorCategorizer.js with methods to categorize errors (UC-001-999, SE-001-999, UR-001-999) based on error type, Odoo API code, and message patterns
-- [ ] T008 Enhance RetryManager in src/services/RetryManager.js with smart retry strategy: 4xx → fail immediately, 429/timeout → exponential backoff (5s/10s/20s), 5xx → retry once then manual review
-- [ ] T009 Create RetryHistory model in src/models/RetryHistory.js to track all retry attempts with timestamps, errors encountered, and user corrections
-- [ ] T010 [P] Implement SyncOperationLogger in src/services/SyncOperationLogger.js to log all sync operations with timing, state transitions, phase breakdowns, and error details
-- [ ] T011 [P] Enhance SyncEngine in src/services/SyncEngine.js to record operation start/end times, phase timing, and detailed state transitions for audit trail
-- [ ] T012 Implement state machine validator in src/utils/stateValidator.js to enforce limited reversibility: Applied ↔ Failed Resolution, Needs Manual Review → Resolved (after user fixes)
-- [ ] T013 Create SyncOperationStatus model in src/models/SyncOperationStatus.js to track: queued, running, completed, failed, needs_review with appropriate transitions and terminal states
-- [ ] T014 Implement concurrency prevention in src/services/ConcurrencyManager.js to prevent duplicate sync operations using optimistic locking on sync_operations table
+- [X] T007 Implement ErrorCategorizer service in src/services/ErrorCategorizer.js with methods to categorize errors (UC-001-999, SE-001-999, UR-001-999) based on error type, Odoo API code, and message patterns
+- [X] T008 Enhance RetryManager in src/services/RetryManager.js with smart retry strategy: 4xx → fail immediately, 429/timeout → exponential backoff (5s/10s/20s), 5xx → retry once then manual review
+- [X] T009 Create RetryHistory model in src/models/RetryHistory.js to track all retry attempts with timestamps, errors encountered, and user corrections
+- [X] T010 [P] Implement SyncOperationLogger in src/services/SyncOperationLogger.js to log all sync operations with timing, state transitions, phase breakdowns, and error details
+- [X] T011 [P] Enhance SyncEngine in src/services/SyncEngine.js to record operation start/end times, phase timing, and detailed state transitions for audit trail
+- [X] T012 Implement state machine validator in src/utils/stateValidator.js to enforce limited reversibility: Applied ↔ Failed Resolution, Needs Manual Review → Resolved (after user fixes)
+- [X] T013 Create SyncOperationStatus model in src/models/SyncOperationStatus.js to track: queued, running, completed, failed, needs_review with appropriate transitions and terminal states
+- [X] T014 Implement concurrency prevention in src/services/ConcurrencyManager.js to prevent duplicate sync operations using optimistic locking on sync_operations table
 
 ---
 

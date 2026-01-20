@@ -1,5 +1,6 @@
 import logger from '../utils/logger.js';
 import { ConflictDetector } from './ConflictDetector.js';
+import SyncOperationLogger from './SyncOperationLogger.js';
 
 /**
  * Sync Engine Service
@@ -99,7 +100,9 @@ export class SyncEngine {
       modelFilter = null,
       dataPreserver = null,
       progressCallback = null,
-      mock = process.env.NODE_ENV === 'test'
+      mock = process.env.NODE_ENV === 'test',
+      operationLogger = new SyncOperationLogger(),
+      syncRunId = null
     } = options || {};
 
     const startedAt = Date.now();
@@ -137,14 +140,31 @@ export class SyncEngine {
     };
 
     for (const model of models) {
-      const modelStart = Date.now();
+      const compareOpId = operationLogger.startOperation({
+        sync_run_id: syncRunId,
+        odoo_model: model,
+        operation_type: 'compare'
+      });
+      operationLogger.transitionState(compareOpId, 'queued', 'running');
+      operationLogger.startPhase(compareOpId, 'compare');
       let comparison;
 
       try {
         comparison = mock
           ? this.buildMockComparison(model)
           : await this.compareModel(sourceClient, targetClient, model);
+        operationLogger.endPhase(compareOpId, 'compare');
+        operationLogger.transitionState(compareOpId, 'running', 'completed');
+        operationLogger.completeOperation(compareOpId, {
+          status: 'completed'
+        });
       } catch (error) {
+        operationLogger.recordError(compareOpId, error);
+        operationLogger.endPhase(compareOpId, 'compare');
+        operationLogger.transitionState(compareOpId, 'running', 'failed');
+        operationLogger.completeOperation(compareOpId, {
+          status: 'failed'
+        });
         errors.push({
           error_type: 'sync_error',
           odoo_model: model,
@@ -158,35 +178,119 @@ export class SyncEngine {
         + comparison.to_update.count
         + comparison.to_delete.count;
 
-      const createCount = await this.executeCreates(
-        model,
-        comparison.to_create.records,
-        targetClient,
-        dataPreserver,
-        rollbackOperations,
-        mock
-      );
+      const createOpId = operationLogger.startOperation({
+        sync_run_id: syncRunId,
+        odoo_model: model,
+        operation_type: 'create'
+      });
+      operationLogger.transitionState(createOpId, 'queued', 'running');
+      operationLogger.startPhase(createOpId, 'create');
+      let createCount = 0;
+      let createDuration = 0;
+      let createEntry = null;
+      try {
+        const createStart = Date.now();
+        createCount = await this.executeCreates(
+          model,
+          comparison.to_create.records,
+          targetClient,
+          dataPreserver,
+          rollbackOperations,
+          mock
+        );
+        createDuration = Date.now() - createStart;
+        operationLogger.endPhase(createOpId, 'create', { record_count: createCount });
+        operationLogger.transitionState(createOpId, 'running', 'completed');
+        createEntry = operationLogger.completeOperation(createOpId, {
+          status: 'completed',
+          record_count: createCount
+        });
+      } catch (error) {
+        operationLogger.recordError(createOpId, error);
+        operationLogger.endPhase(createOpId, 'create');
+        operationLogger.transitionState(createOpId, 'running', 'failed');
+        operationLogger.completeOperation(createOpId, {
+          status: 'failed'
+        });
+        throw error;
+      }
       totalCreated += createCount;
       recordsProcessed += createCount;
 
-      const updateCount = await this.executeUpdates(
-        model,
-        comparison.to_update.records,
-        targetClient,
-        dataPreserver,
-        rollbackOperations,
-        mock
-      );
+      const updateOpId = operationLogger.startOperation({
+        sync_run_id: syncRunId,
+        odoo_model: model,
+        operation_type: 'update'
+      });
+      operationLogger.transitionState(updateOpId, 'queued', 'running');
+      operationLogger.startPhase(updateOpId, 'update');
+      let updateCount = 0;
+      let updateDuration = 0;
+      let updateEntry = null;
+      try {
+        const updateStart = Date.now();
+        updateCount = await this.executeUpdates(
+          model,
+          comparison.to_update.records,
+          targetClient,
+          dataPreserver,
+          rollbackOperations,
+          mock
+        );
+        updateDuration = Date.now() - updateStart;
+        operationLogger.endPhase(updateOpId, 'update', { record_count: updateCount });
+        operationLogger.transitionState(updateOpId, 'running', 'completed');
+        updateEntry = operationLogger.completeOperation(updateOpId, {
+          status: 'completed',
+          record_count: updateCount
+        });
+      } catch (error) {
+        operationLogger.recordError(updateOpId, error);
+        operationLogger.endPhase(updateOpId, 'update');
+        operationLogger.transitionState(updateOpId, 'running', 'failed');
+        operationLogger.completeOperation(updateOpId, {
+          status: 'failed'
+        });
+        throw error;
+      }
       totalUpdated += updateCount;
       recordsProcessed += updateCount;
 
-      const deleteCount = await this.executeDeletes(
-        model,
-        comparison.to_delete.records,
-        targetClient,
-        rollbackOperations,
-        mock
-      );
+      const deleteOpId = operationLogger.startOperation({
+        sync_run_id: syncRunId,
+        odoo_model: model,
+        operation_type: 'delete'
+      });
+      operationLogger.transitionState(deleteOpId, 'queued', 'running');
+      operationLogger.startPhase(deleteOpId, 'delete');
+      let deleteCount = 0;
+      let deleteDuration = 0;
+      let deleteEntry = null;
+      try {
+        const deleteStart = Date.now();
+        deleteCount = await this.executeDeletes(
+          model,
+          comparison.to_delete.records,
+          targetClient,
+          rollbackOperations,
+          mock
+        );
+        deleteDuration = Date.now() - deleteStart;
+        operationLogger.endPhase(deleteOpId, 'delete', { record_count: deleteCount });
+        operationLogger.transitionState(deleteOpId, 'running', 'completed');
+        deleteEntry = operationLogger.completeOperation(deleteOpId, {
+          status: 'completed',
+          record_count: deleteCount
+        });
+      } catch (error) {
+        operationLogger.recordError(deleteOpId, error);
+        operationLogger.endPhase(deleteOpId, 'delete');
+        operationLogger.transitionState(deleteOpId, 'running', 'failed');
+        operationLogger.completeOperation(deleteOpId, {
+          status: 'failed'
+        });
+        throw error;
+      }
       totalDeleted += deleteCount;
       recordsProcessed += deleteCount;
 
@@ -198,22 +302,28 @@ export class SyncEngine {
         odoo_model: model,
         operation_type: 'create',
         record_count: createCount,
-        duration_ms: Date.now() - modelStart,
-        status: 'completed'
+        duration_ms: createDuration,
+        status: 'completed',
+        phase_timings: { create_ms: createDuration },
+        state_transitions: createEntry?.state_transitions || []
       });
       operations.push({
         odoo_model: model,
         operation_type: 'update',
         record_count: updateCount,
-        duration_ms: Date.now() - modelStart,
-        status: 'completed'
+        duration_ms: updateDuration,
+        status: 'completed',
+        phase_timings: { update_ms: updateDuration },
+        state_transitions: updateEntry?.state_transitions || []
       });
       operations.push({
         odoo_model: model,
         operation_type: 'delete',
         record_count: deleteCount,
-        duration_ms: Date.now() - modelStart,
-        status: 'completed'
+        duration_ms: deleteDuration,
+        status: 'completed',
+        phase_timings: { delete_ms: deleteDuration },
+        state_transitions: deleteEntry?.state_transitions || []
       });
 
       updateProgress(model);
