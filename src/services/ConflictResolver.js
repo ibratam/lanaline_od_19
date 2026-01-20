@@ -101,18 +101,37 @@ export class ConflictResolver {
     return true;
   }
 
+  /**
+   * Categorize errors into three categories for retry strategy and user messaging.
+   * Maps to error codes: UC-001-999, SE-001-999, UR-001-999
+   *
+   * @param {Error} error - The error to categorize
+   * @returns {string} One of 'user_correctable', 'system', or 'unrecoverable'
+   */
   _categorizeError(error) {
     const message = String(error?.message || '').toLowerCase();
     const code = String(error?.code || '').toUpperCase();
 
-    if (code.startsWith('UC') || message.includes('validation')) {
+    // User-Correctable (UC-001-999): Validation errors, data constraint violations
+    if (code.startsWith('UC') ||
+        message.includes('validation') ||
+        message.includes('required field') ||
+        message.includes('constraint violation') ||
+        message.includes('constraint failed')) {
       return 'user_correctable';
     }
 
-    if (code.startsWith('SE') || message.includes('timeout') || message.includes('network')) {
+    // System Errors (SE-001-999): Temporary failures that may succeed on retry
+    if (code.startsWith('SE') ||
+        message.includes('timeout') ||
+        message.includes('network') ||
+        message.includes('econnrefused') ||
+        message.includes('enotfound') ||
+        message.includes('temporarily unavailable')) {
       return 'system';
     }
 
+    // Unrecoverable (UR-001-999): Permanent failures that won't succeed on retry
     return 'unrecoverable';
   }
 

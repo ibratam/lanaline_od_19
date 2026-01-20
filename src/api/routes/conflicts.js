@@ -7,6 +7,7 @@ import {
 } from '../middleware/errorHandler.js';
 import ConflictResolver from '../../services/ConflictResolver.js';
 import RetryManager from '../../services/RetryManager.js';
+import BulkResolutionEngine from '../../services/BulkResolutionEngine.js';
 import ConflictLock from '../../models/ConflictLock.js';
 import ConflictResolution from '../../models/ConflictResolution.js';
 
@@ -32,17 +33,40 @@ export function createConflictsRouter(db) {
   const database = db.getDB();
   const conflictResolver = new ConflictResolver(db);
   const retryManager = new RetryManager(conflictResolver);
+  const bulkResolutionEngine = new BulkResolutionEngine(db, conflictResolver);
   const lockModel = new ConflictLock(database);
   const resolutionModel = new ConflictResolution(database);
 
+  /**
+   * GET /api/conflicts - List conflicts with cursor-based pagination for efficient large dataset queries
+   * Query parameters:
+   *   - limit: Number of results per page (default: 25, max: 200)
+   *   - cursor: Cursor for pagination (base64 encoded JSON: {id, created_at})
+   *   - state: Filter by state (detected|resolved)
+   *   - model: Filter by model name
+   */
   router.get('/', asyncHandler(async (req, res) => {
     const limit = Math.min(parseIntParam(req.query.limit, 25), 200);
-    const cursor = parseIntParam(req.query.cursor, null);
+    const cursorParam = req.query.cursor || null;
     const state = req.query.state || null;
     const model = req.query.model || null;
 
     if (state && !STATE_MAP.has(state)) {
       throw new ValidationError('state must be detected or resolved');
+    }
+
+    // Parse cursor if provided (format: base64 encoded {id, created_at})
+    let cursorId = null;
+    let cursorCreatedAt = null;
+    if (cursorParam) {
+      try {
+        const decoded = Buffer.from(cursorParam, 'base64').toString('utf-8');
+        const cursorObj = JSON.parse(decoded);
+        cursorId = cursorObj.id;
+        cursorCreatedAt = cursorObj.created_at;
+      } catch (e) {
+        throw new ValidationError('Invalid cursor format');
+      }
     }
 
     const params = [];
@@ -59,22 +83,40 @@ export function createConflictsRouter(db) {
       sql += ' AND resolution IS NOT NULL';
     }
 
-    if (cursor) {
+    // Cursor-based pagination: fetch by created_at then id for stability with inserts
+    if (cursorCreatedAt && cursorId) {
+      sql += ' AND (created_at > ? OR (created_at = ? AND id > ?))';
+      params.push(cursorCreatedAt, cursorCreatedAt, cursorId);
+    } else if (cursorId) {
       sql += ' AND id > ?';
-      params.push(cursor);
+      params.push(cursorId);
     }
 
-    sql += ' ORDER BY id ASC LIMIT ?';
-    params.push(limit);
+    sql += ' ORDER BY created_at ASC, id ASC LIMIT ?';
+    params.push(limit + 1); // Fetch one extra to determine if there's a next page
 
     const rows = database.prepare(sql).all(...params);
-    const items = rows.map(normalizeConflict);
-    const nextCursor = items.length === limit ? items[items.length - 1].id : null;
+
+    // Check if there's a next page
+    const hasNextPage = rows.length > limit;
+    const items = rows.slice(0, limit).map(normalizeConflict);
+
+    // Generate next cursor if there are more results
+    let nextCursor = null;
+    if (hasNextPage && items.length > 0) {
+      const lastItem = items[items.length - 1];
+      const cursorData = {
+        id: lastItem.id,
+        created_at: lastItem.created_at
+      };
+      nextCursor = Buffer.from(JSON.stringify(cursorData)).toString('base64');
+    }
 
     res.json({
       items,
       next_cursor: nextCursor,
-      limit
+      limit,
+      has_more: hasNextPage
     });
   }));
 
@@ -182,6 +224,39 @@ export function createConflictsRouter(db) {
         }
       }
     });
+  }));
+
+  router.post('/bulk-resolve', asyncHandler(async (req, res) => {
+    const { rule, dry_run } = req.body || {};
+
+    if (!rule) {
+      throw new ValidationError('rule is required');
+    }
+
+    try {
+      if (dry_run) {
+        const preview = bulkResolutionEngine.preview(rule);
+        res.json({
+          dry_run: true,
+          rule,
+          matching_conflicts: preview.matches,
+          preview: preview.preview
+        });
+        return;
+      }
+
+      const result = bulkResolutionEngine.apply(rule);
+      res.json({
+        dry_run: false,
+        rule,
+        resolved_count: result.resolved_count,
+        already_resolved_count: result.already_resolved_count,
+        failed_count: result.failed_count,
+        details: result.details
+      });
+    } catch (error) {
+      throw new ValidationError(error.message);
+    }
   }));
 
   return router;

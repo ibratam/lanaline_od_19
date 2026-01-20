@@ -56,6 +56,12 @@ class APIClient {
     }
   }
 
+  buildQuery(params = {}) {
+    const entries = Object.entries(params)
+      .filter(([, value]) => value !== undefined && value !== null && value !== '');
+    return new URLSearchParams(entries);
+  }
+
   /**
    * GET request
    */
@@ -154,7 +160,7 @@ class APIClient {
 
   // History endpoints
   async getHistory(params = {}) {
-    const query = new URLSearchParams(params);
+    const query = this.buildQuery(params);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return this.get(`/history${suffix}`);
   }
@@ -164,14 +170,14 @@ class APIClient {
   }
 
   async exportHistory(params = {}) {
-    const query = new URLSearchParams(params);
+    const query = this.buildQuery(params);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return `${this.baseURL}/history/export${suffix}`;
   }
 
   // Conflict endpoints
   async getConflicts(params = {}) {
-    const query = new URLSearchParams(params);
+    const query = this.buildQuery(params);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return this.get(`/conflicts${suffix}`);
   }
@@ -198,6 +204,14 @@ class APIClient {
 
   async retryConflict(id) {
     return this.post(`/conflicts/${id}/retry`);
+  }
+
+  async previewBulkResolution(rule) {
+    return this.post('/conflicts/bulk-resolve', { rule, dry_run: true });
+  }
+
+  async applyBulkResolution(rule) {
+    return this.post('/conflicts/bulk-resolve', { rule, dry_run: false });
   }
 
   // Health check

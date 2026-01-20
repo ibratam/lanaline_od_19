@@ -15,6 +15,7 @@ import ScheduleManager from './services/ScheduleManager.js';
 import HistoryLogger from './services/HistoryLogger.js';
 import DataPreserver from './services/DataPreserver.js';
 import NotificationService from './services/NotificationService.js';
+import ConflictLock from './models/ConflictLock.js';
 
 // Load environment variables
 dotenv.config();
@@ -45,6 +46,20 @@ export function createApp(db) {
   services.notificationService = new NotificationService();
   services.scheduleManager = new ScheduleManager(db, services);
   services.scheduleManager.startScheduler();
+
+  // Initialize conflict lock cleanup job (runs every 60 seconds)
+  const lockModel = new ConflictLock(db.getDB());
+  const lockCleanupInterval = setInterval(() => {
+    try {
+      lockModel.cleanup();
+      logger.debug('Conflict locks cleanup completed');
+    } catch (error) {
+      logger.error('Conflict locks cleanup failed:', error);
+    }
+  }, 60 * 1000); // 60 seconds
+
+  // Store interval reference for graceful shutdown
+  app.locals.lockCleanupInterval = lockCleanupInterval;
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {
@@ -84,7 +99,7 @@ if (process.env.NODE_ENV !== 'test') {
   const { initializeDatabase } = await import('./db/init.js');
 
   const PORT = process.env.PORT || 3000;
-  const HOST = process.env.HOST || 'localhost';
+  const HOST = process.env.HOST || '0.0.0.0';
 
   try {
     // Initialize database
@@ -102,6 +117,10 @@ if (process.env.NODE_ENV !== 'test') {
       logger.info('SIGTERM signal received: closing HTTP server');
       server.close(() => {
         logger.info('HTTP server closed');
+        // Clear lock cleanup interval
+        if (app.locals.lockCleanupInterval) {
+          clearInterval(app.locals.lockCleanupInterval);
+        }
         if (db) db.close();
         process.exit(0);
       });

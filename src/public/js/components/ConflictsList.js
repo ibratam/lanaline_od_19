@@ -58,6 +58,9 @@ export class ConflictsList {
           <div class="form-group">
             <button class="btn btn-secondary" id="conflicts-apply">Apply</button>
           </div>
+          <div class="form-group">
+            <button class="btn btn-secondary" id="conflicts-bulk-open">Bulk Resolve</button>
+          </div>
         </div>
       </div>
 

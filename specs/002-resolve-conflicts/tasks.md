@@ -285,13 +285,13 @@ Users need to review the complete history of sync operations to understand what 
 
 ---
 
-- [ ] T023 [US3] Extend GET /api/history endpoint in src/api/routes/history.js (existing) to support query param: `filter=conflicts` to show only conflict-related operations; include conflict state transitions in response
+- [x] T023 [US3] Extend GET /api/history endpoint in src/api/routes/history.js (existing) to support query param: `filter=conflicts` to show only conflict-related operations; include conflict state transitions in response
 
-- [ ] T024 [P] [US3] Implement GET /api/history/:id/changes endpoint in src/api/routes/history.js returning detailed record-level changes for a specific sync operation: which records created/updated/deleted with before/after values
+- [x] T024 [P] [US3] Implement GET /api/history/:id/changes endpoint in src/api/routes/history.js returning detailed record-level changes for a specific sync operation: which records created/updated/deleted with before/after values
 
-- [ ] T025 [P] [US3] Create SyncHistoryPanel frontend component in public/js/components/SyncHistoryPanel.js displaying timeline or table of sync operations with: timestamp, operation count, status badge, expandable details showing affected records and resolutions
+- [x] T025 [P] [US3] Create SyncHistoryPanel frontend component in public/js/components/SyncHistoryPanel.js displaying timeline or table of sync operations with: timestamp, operation count, status badge, expandable details showing affected records and resolutions
 
-- [ ] T026 [US3] Integrate history panel in public/index.html by adding tab/section in main dashboard displaying SyncHistoryPanel with filtering controls (date range picker, model filter, status filter)
+- [x] T026 [US3] Integrate history panel in public/index.html by adding tab/section in main dashboard displaying SyncHistoryPanel with filtering controls (date range picker, model filter, status filter)
 
 ---
 
@@ -313,11 +313,11 @@ Users need to resolve multiple conflicts at once using a consistent rule to redu
 
 ---
 
-- [ ] T027 [US4] Implement POST /api/conflicts/bulk-resolve endpoint in src/api/routes/conflicts.js accepting {rule: {model, field?, action}, dry_run} and calling BulkResolutionEngine.preview() or .apply(); returns preview with affected count or applied result with success/failure counts
+- [x] T027 [US4] Implement POST /api/conflicts/bulk-resolve endpoint in src/api/routes/conflicts.js accepting {rule: {model, field?, action}, dry_run} and calling BulkResolutionEngine.preview() or .apply(); returns preview with affected count or applied result with success/failure counts
 
-- [ ] T028 [P] [US4] Create BulkResolutionDialog frontend component in public/js/components/BulkResolutionDialog.js with: rule builder (model selector, field selector optional, action radio buttons), preview button showing matching count and sample conflicts, apply button with confirmation, results display (resolved count, already-resolved count, failed count)
+- [x] T028 [P] [US4] Create BulkResolutionDialog frontend component in public/js/components/BulkResolutionDialog.js with: rule builder (model selector, field selector optional, action radio buttons), preview button showing matching count and sample conflicts, apply button with confirmation, results display (resolved count, already-resolved count, failed count)
 
-- [ ] T029 [US4] Integrate bulk resolver in public/index.html by adding "Bulk Resolve" button in conflicts header → opens BulkResolutionDialog modal; display bulk operation results in notification panel
+- [x] T029 [US4] Integrate bulk resolver in public/index.html by adding "Bulk Resolve" button in conflicts header → opens BulkResolutionDialog modal; display bulk operation results in notification panel
 
 ---
 
@@ -336,17 +336,17 @@ Implement error handling, optimize performance, add tests, and ensure production
 
 ---
 
-- [ ] T030 Implement error categorization in src/services/RetryManager.js by extending `_categorizeError()` to return 'user_correctable', 'system', or 'unrecoverable' based on error message patterns; map to error codes (UC-001-999, SE-001-999, UR-001-999)
+- [x] T030 Implement error categorization in src/services/RetryManager.js by extending `_categorizeError()` to return 'user_correctable', 'system', or 'unrecoverable' based on error message patterns; map to error codes (UC-001-999, SE-001-999, UR-001-999)
 
-- [ ] T031 [P] Implement pagination support in src/api/routes/conflicts.js using cursor-based pagination: `?cursor=eyJpZCI6MzIsImNyZWF0ZWRfYXQiOiIyMDI2LTAxLTE5VDEwOjMwOjAwWiJ9` for efficient large dataset queries; ensure query with 1000+ conflicts returns in <2 seconds
+- [x] T031 [P] Implement pagination support in src/api/routes/conflicts.js using cursor-based pagination: `?cursor=eyJpZCI6MzIsImNyZWF0ZWRfYXQiOiIyMDI2LTAxLTE5VDEwOjMwOjAwWiJ9` for efficient large dataset queries; ensure query with 1000+ conflicts returns in <2 seconds
 
-- [ ] T032 [P] Implement lock expiration cleanup job in src/services/ConflictLock.js by adding `cleanup()` method; register in app.js to run every 60 seconds and delete locks where expires_at < CURRENT_TIMESTAMP
+- [x] T032 [P] Implement lock expiration cleanup job in src/services/ConflictLock.js by adding `cleanup()` method; register in app.js to run every 60 seconds and delete locks where expires_at < CURRENT_TIMESTAMP
 
-- [ ] T033 [P] Add comprehensive error handling in src/api/middleware/errorHandler.js (extend existing) to catch all thrown errors, categorize them, sanitize messages, log full details internally, return user-facing error with error code and timestamp
+- [x] T033 [P] Add comprehensive error handling in src/api/middleware/errorHandler.js (extend existing) to catch all thrown errors, categorize them, sanitize messages, log full details internally, return user-facing error with error code and timestamp
 
-- [ ] T034 [P] Sanitize sensitive data in error messages in src/utils/errorSanitizer.js by removing: Odoo API responses, stack traces, internal field values, SQL queries; allow only field names and validation messages in UC errors
+- [x] T034 [P] Sanitize sensitive data in error messages in src/utils/errorSanitizer.js by removing: Odoo API responses, stack traces, internal field values, SQL queries; allow only field names and validation messages in UC errors
 
-- [ ] T035 Write unit tests in tests/unit/ConflictResolver.test.js covering: state transitions (detected→resolved→applied→terminal), prevent double-resolution, categorize errors correctly, with Jest testing ≥80% code coverage
+- [x] T035 Write unit tests in tests/unit/ConflictResolver.test.js covering: state transitions (detected→resolved→applied→terminal), prevent double-resolution, categorize errors correctly, with Jest testing ≥80% code coverage
 
 ---
 

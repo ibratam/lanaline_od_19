@@ -457,7 +457,17 @@ export class SyncEngine {
 
     if (!mock && targetClient && records.length > 0) {
       const ids = records.map(record => record.id);
-      await targetClient.delete(model, ids);
+      try {
+        await targetClient.delete(model, ids);
+      } catch (error) {
+        const shouldArchive = await this.shouldArchiveOnDeleteError(error, model, targetClient);
+        if (!shouldArchive) {
+          throw error;
+        }
+
+        logger.warn(`Delete blocked for ${model}; archiving ${ids.length} records instead.`);
+        await targetClient.write(model, ids, { active: false });
+      }
     }
 
     for (const record of records) {
@@ -553,6 +563,22 @@ export class SyncEngine {
     const message = error?.details?.data?.message || error?.message || '';
     return name === 'odoo.exceptions.AccessError'
       || /not allowed to access/i.test(message);
+  }
+
+  isArchiveSuggestedError(error) {
+    const message = error?.details?.data?.message || error?.message || '';
+    return /archive it instead/i.test(message)
+      || /requires the record being deleted/i.test(message)
+      || /foreign key constraint/i.test(message);
+  }
+
+  async shouldArchiveOnDeleteError(error, model, targetClient) {
+    if (!this.isArchiveSuggestedError(error)) {
+      return false;
+    }
+
+    const writableFields = await this.getWritableFields(targetClient, model);
+    return !!(writableFields && writableFields.has('active'));
   }
 
   /**

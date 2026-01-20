@@ -9,6 +9,8 @@ import ModelSelector from './components/ModelSelector.js';
 import ConflictsList from './components/ConflictsList.js';
 import ConflictDetail from './components/ConflictDetail.js';
 import NotificationPanel from './components/NotificationPanel.js';
+import SyncHistoryPanel from './components/SyncHistoryPanel.js';
+import BulkResolutionDialog from './components/BulkResolutionDialog.js';
 import apiClient from './services/apiClient.js';
 
 /**
@@ -23,11 +25,26 @@ class OdooSyncApp {
     this.syncResults = new SyncResults();
     this.scheduleEditor = new ScheduleEditor();
     this.historyTable = new HistoryTable();
+    this.syncHistoryPanel = new SyncHistoryPanel();
     this.previewModelSelector = new ModelSelector();
     this.syncModelSelector = new ModelSelector();
     this.conflictsList = new ConflictsList();
     this.conflictDetail = new ConflictDetail();
     this.notificationPanel = new NotificationPanel();
+    this.bulkResolutionDialog = new BulkResolutionDialog({
+      onPreview: (rule) => apiClient.previewBulkResolution(rule),
+      onApply: async (rule) => {
+        const result = await apiClient.applyBulkResolution(rule);
+        this.notificationPanel.show({
+          type: result.failed_count ? 'error' : 'success',
+          message: `Bulk resolved ${result.resolved_count} conflicts (${result.failed_count} failed).`
+        });
+        return result;
+      },
+      onClose: () => {
+        this.loadConflictsTab();
+      }
+    });
     this.activeTab = 'config';
     this.lastSyncRunId = null;
   }
@@ -270,9 +287,9 @@ class OdooSyncApp {
     const container = document.getElementById('history-container');
     if (!container) return;
 
-    const html = await this.historyTable.load();
+    const html = await this.syncHistoryPanel.load();
     container.innerHTML = html;
-    this.historyTable.attachHandlers(async () => {
+    this.syncHistoryPanel.attachHandlers(async () => {
       await this.loadHistoryTab();
     });
   }
@@ -295,7 +312,10 @@ class OdooSyncApp {
           <p class="text-muted">Select a conflict to view details.</p>
         </div>
       </div>
+      <div id="bulk-resolution-root"></div>
     `;
+
+    this.bulkResolutionDialog.mount(document.getElementById('bulk-resolution-root'));
 
     this.conflictsList.attachHandlers(
       async () => {
@@ -349,6 +369,16 @@ class OdooSyncApp {
         );
       }
     );
+
+    document.getElementById('conflicts-bulk-open')?.addEventListener('click', () => {
+      const models = [...new Set(this.conflictsList.conflicts
+        .map(conflict => conflict.odoo_model)
+        .filter(Boolean))].sort();
+      this.bulkResolutionDialog.open({
+        models,
+        preselectedModel: this.conflictsList.modelFilter
+      });
+    });
   }
 
   async loadModelsForSelector(prefix, sourceSelectId, selector) {
