@@ -37,7 +37,7 @@ function normalizeConflict(conflict) {
 export function createConflictsRouter(db, services = {}) {
   const router = express.Router();
   const database = db.getDB();
-  const conflictResolver = new ConflictResolver(db);
+  const conflictResolver = new ConflictResolver(db, services);
   const retryManager = new RetryManager(conflictResolver);
   const failureHandler = new ConflictFailureHandler(db, services.notificationService);
   const bulkResolutionEngine = new BulkResolutionEngine(db, conflictResolver);
@@ -209,12 +209,12 @@ export function createConflictsRouter(db, services = {}) {
     const { simulate_error } = req.body || {};
     res.status(202).json({ status: 'applying' });
 
-    setImmediate(() => {
+    setImmediate(async () => {
       try {
         if (process.env.NODE_ENV === 'test' && simulate_error) {
           throw new Error('Simulated conflict apply failure');
         }
-        conflictResolver.apply(id);
+        await conflictResolver.apply(id);
       } catch (error) {
         try {
           failureHandler.handleApplyFailure(id, error);
@@ -270,7 +270,7 @@ export function createConflictsRouter(db, services = {}) {
         return;
       }
 
-      const result = bulkResolutionEngine.apply(rule);
+      const result = await bulkResolutionEngine.apply(rule);
       res.json({
         dry_run: false,
         rule,

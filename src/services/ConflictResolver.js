@@ -1,13 +1,19 @@
 import logger from '../utils/logger.js';
 import { ensureConflictTransition } from '../utils/stateValidator.js';
+import OdooClient from './OdooClient.js';
+import DataPreserver from './DataPreserver.js';
+import SyncEngine from './SyncEngine.js';
 
 /**
  * Conflict Resolver Service
  * Handles state transitions for conflict resolution workflow.
  */
 export class ConflictResolver {
-  constructor(db) {
+  constructor(db, services = {}) {
     this.db = db.getDB ? db.getDB() : db;
+    this.configManager = services.configManager || null;
+    this.dataPreserver = services.dataPreserver || new DataPreserver();
+    this.syncEngine = new SyncEngine(null);
   }
 
   /**
@@ -54,27 +60,33 @@ export class ConflictResolver {
   /**
    * Apply a previously resolved conflict.
    */
-  apply(conflictId) {
+  async apply(conflictId) {
     const conflict = this._getConflict(conflictId);
     if (!conflict) {
       throw new Error(`Conflict ${conflictId} not found`);
     }
 
-    if (!['resolved', 'failed_resolution'].includes(conflict.state)) {
-      throw new Error('Conflict is not resolved');
+    await this._applyConflict(conflict, null);
+    this.db.prepare(`
+      UPDATE sync_conflicts
+      SET state = 'applied', updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(conflictId);
+    this.db.prepare(`
+      UPDATE conflict_resolutions
+      SET applied_at = CURRENT_TIMESTAMP
+      WHERE conflict_id = ?
+    `).run(conflictId);
+    return { status: 'applied' };
+  }
+
+  async applyWithClient(conflictId, client, chosenVersionOverride = null) {
+    const conflict = this._getConflict(conflictId);
+    if (!conflict) {
+      throw new Error(`Conflict ${conflictId} not found`);
     }
 
-    ensureConflictTransition(conflict.state, 'applied');
-
-    const resolution = this.db.prepare(`
-      SELECT * FROM conflict_resolutions WHERE conflict_id = ?
-    `).get(conflictId);
-
-    if (!resolution) {
-      throw new Error('Resolution record missing');
-    }
-
-    this._performSync(conflict, resolution.chosen_version);
+    await this._applyConflict(conflict, client, chosenVersionOverride);
     this.db.prepare(`
       UPDATE sync_conflicts
       SET state = 'applied', updated_at = CURRENT_TIMESTAMP
@@ -131,11 +143,72 @@ export class ConflictResolver {
     return 'unrecoverable';
   }
 
-  _performSync(conflict, chosenVersion) {
-    if (!conflict || !chosenVersion) {
+  async _applyConflict(conflict, client, chosenVersionOverride = null) {
+    if (!conflict) {
       throw new Error('Conflict sync payload invalid');
     }
-    return true;
+
+    if (!['resolved', 'failed_resolution'].includes(conflict.state)) {
+      throw new Error('Conflict is not resolved');
+    }
+
+    ensureConflictTransition(conflict.state, 'applied');
+
+    const resolution = this.db.prepare(`
+      SELECT * FROM conflict_resolutions WHERE conflict_id = ?
+    `).get(conflict.id);
+
+    if (!resolution && !chosenVersionOverride) {
+      throw new Error('Resolution record missing');
+    }
+
+    const chosenVersion = chosenVersionOverride || resolution.chosen_version;
+    const shouldKeepLocal = chosenVersion === 'local';
+    const connectionId = shouldKeepLocal ? conflict.target_db_id : conflict.source_db_id;
+    const updateValues = shouldKeepLocal ? conflict.source_values : conflict.target_values;
+
+    const activeClient = client || await this.createClient(connectionId);
+    try {
+      const prepared = this.dataPreserver.prepareUpdateValues(updateValues);
+      const filtered = await this.syncEngine.filterWritableFields(
+        conflict.odoo_model,
+        prepared,
+        activeClient,
+        false
+      );
+
+      const hasValues = filtered && Object.keys(filtered).length > 0;
+      if (!hasValues) {
+        logger.warn('Conflict apply skipped: no writable fields', {
+          conflictId: conflict.id,
+          model: conflict.odoo_model
+        });
+        return { status: 'skipped' };
+      }
+
+      await activeClient.write(conflict.odoo_model, conflict.record_id, filtered);
+      return { status: 'applied' };
+    } finally {
+      if (!client) {
+        await activeClient.close();
+      }
+    }
+  }
+
+  async createClient(connectionId) {
+    const connection = await this.configManager.getConnectionWithPassword(connectionId);
+    if (!connection) {
+      throw new Error(`Connection ${connectionId} not found`);
+    }
+
+    const client = new OdooClient(
+      connection.url,
+      connection.database_name,
+      connection.username,
+      connection.password
+    );
+    await client.authenticate();
+    return client;
   }
 
   _getConflict(conflictId) {

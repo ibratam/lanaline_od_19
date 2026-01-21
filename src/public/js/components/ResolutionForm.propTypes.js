@@ -20,7 +20,7 @@ export const ResolutionFormPropTypes = {
     type: 'string',
     required: false,
     default: 'Local',
-    description: 'Label for source/local version'
+    description: 'Label for source version'
   },
 
   targetLabel: {
@@ -46,7 +46,7 @@ export const ResolutionFormPropTypes = {
     type: ['string', 'null'],
     required: false,
     default: null,
-    description: 'Pre-select "local" or "odoo" if known'
+    description: 'Pre-select "source" or "target" if known'
   },
 
   loading: {
@@ -107,13 +107,13 @@ export const ResolutionFormRenderProps = {
   buttons: [
     {
       id: 'keep-local',
-      label: 'Keep Local',
+      label: 'Keep Source',
       version: 'local',
       class: 'btn btn-outline-primary'
     },
     {
       id: 'keep-odoo',
-      label: 'Keep Odoo',
+      label: 'Keep Target',
       version: 'odoo',
       class: 'btn btn-outline-primary'
     }

@@ -12,6 +12,7 @@ import OdooClient from '../../services/OdooClient.js';
 import HistoryLogger from '../../services/HistoryLogger.js';
 import DataPreserver from '../../services/DataPreserver.js';
 import SyncRun from '../../models/SyncRun.js';
+import SyncConflict from '../../models/SyncConflict.js';
 import SyncFailureTracker from '../../services/SyncFailureTracker.js';
 import TableCreator from '../../services/TableCreator.js';
 import TableCreationNotifier from '../../services/TableCreationNotifier.js';
@@ -38,7 +39,9 @@ export function createSyncRouter(db, services) {
   const historyLogger = new HistoryLogger(db);
   const dataPreserver = new DataPreserver();
   const syncRunModel = new SyncRun(db.getDB());
+  const syncConflictModel = new SyncConflict(db.getDB());
   const failureTracker = new SyncFailureTracker(db);
+  const database = db.getDB();
 
   const MIN_RETRY_WAIT_MS = process.env.NODE_ENV === 'test' ? 0 : 5000;
 
@@ -184,6 +187,65 @@ export function createSyncRouter(db, services) {
       preview.model_filter = Array.isArray(model_filter) && model_filter.length > 0
         ? model_filter
         : null;
+
+      if (process.env.NODE_ENV !== 'test') {
+        const previewRun = syncRunModel.create({
+          source_db_id,
+          target_db_id,
+          status: 'completed',
+          triggered_by: 'manual',
+          model_filter: preview.model_filter,
+          preview_only: 1
+        });
+
+        preview.sync_run_id = previewRun.id;
+
+        for (const modelComparison of preview.models) {
+          for (const conflict of modelComparison.conflicts || []) {
+            const sourceValues = typeof conflict.source_values === 'string'
+              ? conflict.source_values
+              : JSON.stringify(conflict.source_values);
+            const targetValues = typeof conflict.target_values === 'string'
+              ? conflict.target_values
+              : JSON.stringify(conflict.target_values);
+            const existing = database.prepare(`
+              SELECT id FROM sync_conflicts
+              WHERE odoo_model = ?
+                AND record_id = ?
+                AND source_db_id = ?
+                AND target_db_id = ?
+                AND source_values = ?
+                AND target_values = ?
+              LIMIT 1
+            `).get(
+              modelComparison.model,
+              conflict.record_id,
+              source_db_id,
+              target_db_id,
+              sourceValues,
+              targetValues
+            );
+
+            if (existing) {
+              continue;
+            }
+
+            syncConflictModel.create({
+              sync_run_id: previewRun.id,
+              odoo_model: modelComparison.model,
+              record_id: conflict.record_id,
+              source_db_id,
+              target_db_id,
+              source_values: sourceValues,
+              target_values: targetValues,
+              source_create_date: conflict.source_create_date,
+              target_create_date: conflict.target_create_date,
+              source_write_date: conflict.source_write_date,
+              target_write_date: conflict.target_write_date
+            });
+          }
+        }
+      }
 
       // Close clients
       await sourceClient.close();

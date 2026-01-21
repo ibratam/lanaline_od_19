@@ -36,11 +36,22 @@ export default function createConsistencyRouter(db, services) {
     }
 
     if (!operationId) {
-      return res.status(400).json({
-        error: true,
-        code: 'CONSISTENCY_001',
-        message: 'No sync operation specified and no recent operations found',
-        details: 'Provide sync_operation_id query parameter'
+      return res.json({
+        status: 'no_operations',
+        data: {
+          sync_operation_id: null,
+          status: 'consistent',
+          summary: {
+            data_mismatch: 0,
+            missing_record: 0,
+            extra_record: 0,
+            total_inconsistencies: 0,
+            duration_ms: 0
+          },
+          inconsistencies: [],
+          timestamp: new Date().toISOString()
+        },
+        timestamp: new Date().toISOString()
       });
     }
 

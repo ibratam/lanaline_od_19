@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
   locked_at DATETIME,
   resolution TEXT, -- keep_source, keep_target, skip, null = unresolved
   resolved_at DATETIME,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE,
   FOREIGN KEY (source_db_id) REFERENCES database_connections(id),
@@ -192,6 +193,7 @@ CREATE TABLE IF NOT EXISTS table_schemas (
 CREATE TABLE IF NOT EXISTS data_inconsistencies (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sync_run_id INTEGER,
+  sync_operation_id INTEGER,
   odoo_model TEXT,
   record_id INTEGER,
   field_name TEXT,
@@ -199,7 +201,10 @@ CREATE TABLE IF NOT EXISTS data_inconsistencies (
   odoo_value TEXT,
   inconsistency_type TEXT NOT NULL, -- data_mismatch, missing_record, extra_record
   suggested_action TEXT,
+  suggested_repair TEXT,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  resolved_at DATETIME,
+  status TEXT NOT NULL DEFAULT 'pending',
   FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE
 );
 

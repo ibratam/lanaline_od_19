@@ -26,7 +26,7 @@ export class BulkResolutionEngine {
     };
   }
 
-  apply(rule) {
+  async apply(rule) {
     this._validateRule(rule);
     const conflicts = this._matchConflicts(rule, ['detected', 'reviewing', 'needs_manual_review']);
     const alreadyResolved = this._matchConflicts(rule, ['resolved', 'applied']);
@@ -46,35 +46,39 @@ export class BulkResolutionEngine {
       throw new Error('No conflicts match this rule');
     }
 
-    const transaction = this.db.transaction(() => {
-      for (const conflict of conflicts) {
-        this.conflictResolver.resolve(conflict.id, chosenVersion);
-        this.conflictResolver.apply(conflict.id);
-        results.resolved_count += 1;
-        results.details.resolved.push(conflict.id);
-      }
-    });
-
+    let sharedClient = null;
     try {
-      transaction();
+      if (conflicts.length > 0) {
+        const connectionId = chosenVersion === 'local'
+          ? conflicts[0].target_db_id
+          : conflicts[0].source_db_id;
+        sharedClient = await this.conflictResolver.createClient(connectionId);
+      }
+
+      for (const conflict of conflicts) {
+        try {
+          this.conflictResolver.resolve(conflict.id, chosenVersion);
+          await this.conflictResolver.applyWithClient(conflict.id, sharedClient, chosenVersion);
+          results.resolved_count += 1;
+          results.details.resolved.push(conflict.id);
+        } catch (error) {
+          results.failed_count += 1;
+          results.details.failed.push({
+            conflict_id: conflict.id,
+            reason: error.message,
+            error_code: 'BULK_APPLY_FAILED'
+          });
+        }
+      }
       logger.info('Bulk resolution applied', { count: conflicts.length });
       return results;
     } catch (error) {
       logger.error('Bulk resolution failed', { error: error.message });
-      return {
-        ...results,
-        resolved_count: 0,
-        failed_count: conflicts.length,
-        details: {
-          ...results.details,
-          resolved: [],
-          failed: conflicts.map(conflict => ({
-            conflict_id: conflict.id,
-            reason: error.message,
-            error_code: 'BULK_APPLY_FAILED'
-          }))
-        }
-      };
+      throw error;
+    } finally {
+      if (sharedClient) {
+        await sharedClient.close();
+      }
     }
   }
 

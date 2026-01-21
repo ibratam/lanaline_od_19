@@ -91,11 +91,11 @@ export class ConsistencyReport {
             </div>
             <div class="item-values">
               <div class="value local">
-                <span class="label">Local:</span>
+                <span class="label">Source:</span>
                 <span class="value-content">${this._truncate(inc.local_value, 50)}</span>
               </div>
               <div class="value odoo">
-                <span class="label">Odoo:</span>
+                <span class="label">Target:</span>
                 <span class="value-content">${this._truncate(inc.odoo_value, 50)}</span>
               </div>
             </div>
@@ -117,9 +117,9 @@ export class ConsistencyReport {
           <div class="inconsistency-item missing">
             <div class="item-header">
               <span class="record-id">Record ID: ${inc.record_id}</span>
-              <span class="status">Missing in Odoo</span>
+              <span class="status">Missing in Target</span>
             </div>
-            <div class="item-note">Exists locally but not found in Odoo</div>
+            <div class="item-note">Exists in source but not found in target</div>
           </div>
         `;
       });
@@ -137,9 +137,9 @@ export class ConsistencyReport {
         html += `
           <div class="inconsistency-item extra">
             <div class="item-header">
-              <span class="status">Extra in Odoo</span>
+              <span class="status">Extra in Target</span>
             </div>
-            <div class="item-note">Exists in Odoo but not found locally</div>
+            <div class="item-note">Exists in target but not found in source</div>
           </div>
         `;
       });
@@ -161,13 +161,13 @@ export class ConsistencyReport {
         <div class="option-group">
           <label>
             <input type="radio" name="repair-action" value="keep_local">
-            <span class="option-label">Keep Local</span>
-            <span class="option-description">Update Odoo with local data</span>
+            <span class="option-label">Keep Source</span>
+            <span class="option-description">Update target with source data</span>
           </label>
           <label>
             <input type="radio" name="repair-action" value="keep_odoo">
-            <span class="option-label">Keep Odoo</span>
-            <span class="option-description">Update local database with Odoo data</span>
+            <span class="option-label">Keep Target</span>
+            <span class="option-description">Update source with target data</span>
           </label>
           <label>
             <input type="radio" name="repair-action" value="manual_review">

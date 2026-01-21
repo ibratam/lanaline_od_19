@@ -7,10 +7,12 @@ import SyncOperationLogger from './SyncOperationLogger.js';
  * Core synchronization logic for comparing and syncing records
  */
 export class SyncEngine {
-  constructor(odooClient) {
+  constructor(odooClient, options = {}) {
     this.odooClient = odooClient;
     this.conflictDetector = new ConflictDetector();
     this.modelFieldCache = new Map();
+    this.modelFieldNames = new Map();
+    this.disableDeletes = options.disableDeletes ?? true;
   }
 
   /**
@@ -256,43 +258,45 @@ export class SyncEngine {
       totalUpdated += updateCount;
       recordsProcessed += updateCount;
 
-      const deleteOpId = operationLogger.startOperation({
-        sync_run_id: syncRunId,
-        odoo_model: model,
-        operation_type: 'delete'
-      });
-      operationLogger.transitionState(deleteOpId, 'queued', 'running');
-      operationLogger.startPhase(deleteOpId, 'delete');
       let deleteCount = 0;
       let deleteDuration = 0;
       let deleteEntry = null;
-      try {
-        const deleteStart = Date.now();
-        deleteCount = await this.executeDeletes(
-          model,
-          comparison.to_delete.records,
-          targetClient,
-          rollbackOperations,
-          mock
-        );
-        deleteDuration = Date.now() - deleteStart;
-        operationLogger.endPhase(deleteOpId, 'delete', { record_count: deleteCount });
-        operationLogger.transitionState(deleteOpId, 'running', 'completed');
-        deleteEntry = operationLogger.completeOperation(deleteOpId, {
-          status: 'completed',
-          record_count: deleteCount
+      if (!this.disableDeletes) {
+        const deleteOpId = operationLogger.startOperation({
+          sync_run_id: syncRunId,
+          odoo_model: model,
+          operation_type: 'delete'
         });
-      } catch (error) {
-        operationLogger.recordError(deleteOpId, error);
-        operationLogger.endPhase(deleteOpId, 'delete');
-        operationLogger.transitionState(deleteOpId, 'running', 'failed');
-        operationLogger.completeOperation(deleteOpId, {
-          status: 'failed'
-        });
-        throw error;
+        operationLogger.transitionState(deleteOpId, 'queued', 'running');
+        operationLogger.startPhase(deleteOpId, 'delete');
+        try {
+          const deleteStart = Date.now();
+          deleteCount = await this.executeDeletes(
+            model,
+            comparison.to_delete.records,
+            targetClient,
+            rollbackOperations,
+            mock
+          );
+          deleteDuration = Date.now() - deleteStart;
+          operationLogger.endPhase(deleteOpId, 'delete', { record_count: deleteCount });
+          operationLogger.transitionState(deleteOpId, 'running', 'completed');
+          deleteEntry = operationLogger.completeOperation(deleteOpId, {
+            status: 'completed',
+            record_count: deleteCount
+          });
+        } catch (error) {
+          operationLogger.recordError(deleteOpId, error);
+          operationLogger.endPhase(deleteOpId, 'delete');
+          operationLogger.transitionState(deleteOpId, 'running', 'failed');
+          operationLogger.completeOperation(deleteOpId, {
+            status: 'failed'
+          });
+          throw error;
+        }
+        totalDeleted += deleteCount;
+        recordsProcessed += deleteCount;
       }
-      totalDeleted += deleteCount;
-      recordsProcessed += deleteCount;
 
       if (mock) {
         await this.delay(10);
@@ -321,7 +325,7 @@ export class SyncEngine {
         operation_type: 'delete',
         record_count: deleteCount,
         duration_ms: deleteDuration,
-        status: 'completed',
+        status: this.disableDeletes ? 'skipped' : 'completed',
         phase_timings: { delete_ms: deleteDuration },
         state_transitions: deleteEntry?.state_transitions || []
       });
@@ -450,14 +454,16 @@ export class SyncEngine {
         }
       }
 
-      // Find records to delete (in target but not in source)
-      for (const [id, targetRecord] of targetMap) {
-        if (!sourceMap.has(id)) {
-          comparison.to_delete.records.push({
-            id,
-            data: targetRecord
-          });
-          comparison.to_delete.count++;
+      if (!this.disableDeletes) {
+        // Find records to delete (in target but not in source)
+        for (const [id, targetRecord] of targetMap) {
+          if (!sourceMap.has(id)) {
+            comparison.to_delete.records.push({
+              id,
+              data: targetRecord
+            });
+            comparison.to_delete.count++;
+          }
         }
       }
 
@@ -524,6 +530,33 @@ export class SyncEngine {
       const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
 
       if (!mock && targetClient) {
+        if (model === 'account.analytic.account' && filteredValues?.company_id) {
+          const companyRef = this.extractCompanyRef(record.data?.company_id, record.data);
+          const mappedCompanyId = await this.findCompanyId(targetClient, companyRef);
+          if (mappedCompanyId) {
+            filteredValues.company_id = mappedCompanyId;
+          } else if (companyRef?.name || companyRef?.code) {
+            logger.warn(`No matching company found for account.analytic.account (${companyRef.name || companyRef.code}).`);
+          }
+        }
+
+        if (model === 'account.account' && filteredValues?.code) {
+          const existingIds = await targetClient.search(model, [['code', '=', filteredValues.code]], 0, 1);
+          if (existingIds.length > 0) {
+            const existingId = existingIds[0];
+            const previous = await targetClient.read(model, existingId, []);
+            logger.info(`Account code ${filteredValues.code} exists; updating ${model} ${existingId} instead of create.`);
+            await targetClient.write(model, existingId, filteredValues);
+            rollbackOperations.updated.push({
+              model,
+              record_id: existingId,
+              previous_values: previous?.[0] || null
+            });
+            count += 1;
+            continue;
+          }
+        }
+
         await targetClient.create(model, filteredValues);
       }
 
@@ -548,6 +581,16 @@ export class SyncEngine {
       const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
 
       if (!mock && targetClient) {
+        if (model === 'account.analytic.account' && filteredValues?.company_id) {
+          const companyRef = this.extractCompanyRef(record.source?.company_id, record.source);
+          const mappedCompanyId = await this.findCompanyId(targetClient, companyRef);
+          if (mappedCompanyId) {
+            filteredValues.company_id = mappedCompanyId;
+          } else if (companyRef?.name || companyRef?.code) {
+            logger.warn(`No matching company found for account.analytic.account (${companyRef.name || companyRef.code}).`);
+          }
+        }
+
         await targetClient.write(model, record.id, filteredValues);
       }
 
@@ -593,6 +636,15 @@ export class SyncEngine {
   }
 
   buildMockComparison(model) {
+    const deleteBlock = this.disableDeletes
+      ? { count: 0, records: [] }
+      : {
+        count: 1,
+        records: [
+          { id: 4, data: { id: 4, name: `${model} Removed` } }
+        ]
+      };
+
     return {
       model,
       to_create: {
@@ -613,12 +665,7 @@ export class SyncEngine {
           }
         ]
       },
-      to_delete: {
-        count: 1,
-        records: [
-          { id: 4, data: { id: 4, name: `${model} Removed` } }
-        ]
-      },
+      to_delete: deleteBlock,
       conflicts: []
     };
   }
@@ -666,6 +713,69 @@ export class SyncEngine {
       this.modelFieldCache.set(model, null);
       return null;
     }
+  }
+
+  async getModelFieldNames(targetClient, model) {
+    if (this.modelFieldNames.has(model)) {
+      return this.modelFieldNames.get(model);
+    }
+
+    const fields = await targetClient.getModelFields(model);
+    const names = new Set(Object.keys(fields || {}));
+    this.modelFieldNames.set(model, names);
+    return names;
+  }
+
+  extractCompanyRef(companyValue, record) {
+    let name = null;
+    let code = null;
+
+    if (Array.isArray(companyValue) && companyValue.length >= 2 && typeof companyValue[1] === 'string') {
+      name = companyValue[1];
+    } else if (typeof companyValue === 'string') {
+      name = companyValue;
+    } else if (companyValue && typeof companyValue === 'object') {
+      name = companyValue.name || companyValue.display_name || null;
+      code = companyValue.code || companyValue.company_code || null;
+    }
+
+    if (!code) {
+      code = record?.company_code || record?.company_id_code || null;
+    }
+
+    return { name, code };
+  }
+
+  async findCompanyId(targetClient, companyRef) {
+    if (!targetClient || (!companyRef?.name && !companyRef?.code)) {
+      return null;
+    }
+
+    if (companyRef.name) {
+      const ids = await targetClient.search('res.company', [['name', '=', companyRef.name]], 0, 1);
+      if (ids.length > 0) {
+        return ids[0];
+      }
+    }
+
+    if (companyRef.code) {
+      const fieldNames = await this.getModelFieldNames(targetClient, 'res.company');
+      let field = null;
+      if (fieldNames.has('code')) {
+        field = 'code';
+      } else if (fieldNames.has('company_code')) {
+        field = 'company_code';
+      }
+
+      if (field) {
+        const ids = await targetClient.search('res.company', [[field, '=', companyRef.code]], 0, 1);
+        if (ids.length > 0) {
+          return ids[0];
+        }
+      }
+    }
+
+    return null;
   }
 
   isAccessDeniedError(error) {

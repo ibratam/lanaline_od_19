@@ -83,6 +83,7 @@ export async function initializeDatabase(dbPath = null) {
       CREATE TABLE IF NOT EXISTS data_inconsistencies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         sync_run_id INTEGER,
+        sync_operation_id INTEGER,
         odoo_model TEXT,
         record_id INTEGER,
         field_name TEXT,
@@ -90,7 +91,10 @@ export async function initializeDatabase(dbPath = null) {
         odoo_value TEXT,
         inconsistency_type TEXT NOT NULL,
         suggested_action TEXT,
+        suggested_repair TEXT,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        resolved_at DATETIME,
+        status TEXT NOT NULL DEFAULT 'pending',
         FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE
       );
 
@@ -102,6 +106,33 @@ export async function initializeDatabase(dbPath = null) {
       CREATE INDEX IF NOT EXISTS idx_table_schemas_name ON table_schemas(table_name);
       CREATE INDEX IF NOT EXISTS idx_data_inconsistencies_type ON data_inconsistencies(inconsistency_type);
     `);
+
+    const dataInconsistencyColumns = sqlite.prepare("PRAGMA table_info('data_inconsistencies')").all();
+    const columnNames = new Set(dataInconsistencyColumns.map(col => col.name));
+    const alterStatements = [];
+
+    if (!columnNames.has('status')) {
+      alterStatements.push("ALTER TABLE data_inconsistencies ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'");
+    }
+    if (!columnNames.has('suggested_repair')) {
+      alterStatements.push('ALTER TABLE data_inconsistencies ADD COLUMN suggested_repair TEXT');
+    }
+    if (!columnNames.has('sync_operation_id')) {
+      alterStatements.push('ALTER TABLE data_inconsistencies ADD COLUMN sync_operation_id INTEGER');
+    }
+    if (!columnNames.has('resolved_at')) {
+      alterStatements.push('ALTER TABLE data_inconsistencies ADD COLUMN resolved_at DATETIME');
+    }
+
+    for (const statement of alterStatements) {
+      sqlite.exec(statement);
+    }
+
+    const conflictColumns = sqlite.prepare("PRAGMA table_info('sync_conflicts')").all();
+    const conflictColumnNames = new Set(conflictColumns.map(col => col.name));
+    if (!conflictColumnNames.has('updated_at')) {
+      sqlite.exec("ALTER TABLE sync_conflicts ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+    }
 
     logger.info('Database initialization complete');
     return db;
