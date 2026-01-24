@@ -19,7 +19,7 @@ export class SyncEngine {
    * Generate preview of synchronization
    * Compares source and target databases, identifies conflicts
    */
-  async generatePreview(sourceClient, targetClient, modelFilter = null) {
+  async generatePreview(sourceClient, targetClient, modelFilter = null, companyId = null) {
     try {
       logger.info('Generating sync preview...');
 
@@ -36,8 +36,10 @@ export class SyncEngine {
       };
 
       // Get list of models to sync
-      const models = await this.getModelsToSync(sourceClient, modelFilter);
+      const selection = await this.getModelSelection(sourceClient, targetClient, modelFilter);
+      const models = selection.models;
       preview.summary.total_models = models.length;
+      preview.model_selection = selection;
 
       // Compare each model
       for (const model of models) {
@@ -47,7 +49,8 @@ export class SyncEngine {
           const modelComparison = await this.compareModel(
             sourceClient,
             targetClient,
-            model
+            model,
+            companyId
           );
 
           preview.models.push(modelComparison);
@@ -104,7 +107,8 @@ export class SyncEngine {
       progressCallback = null,
       mock = process.env.NODE_ENV === 'test',
       operationLogger = new SyncOperationLogger(),
-      syncRunId = null
+      syncRunId = null,
+      companyId = null
     } = options || {};
 
     const startedAt = Date.now();
@@ -124,7 +128,7 @@ export class SyncEngine {
 
     const models = mock
       ? (Array.isArray(modelFilter) && modelFilter.length > 0 ? modelFilter : ['res.partner'])
-      : await this.getModelsToSync(sourceClient, modelFilter);
+      : await this.getModelsToSync(sourceClient, targetClient, modelFilter);
 
     const updateProgress = (currentModel) => {
       if (progressCallback) {
@@ -154,25 +158,29 @@ export class SyncEngine {
       try {
         comparison = mock
           ? this.buildMockComparison(model)
-          : await this.compareModel(sourceClient, targetClient, model);
+          : await this.compareModel(sourceClient, targetClient, model, companyId);
         operationLogger.endPhase(compareOpId, 'compare');
         operationLogger.transitionState(compareOpId, 'running', 'completed');
         operationLogger.completeOperation(compareOpId, {
           status: 'completed'
         });
       } catch (error) {
+        const accessDenied = this.isAccessDeniedError(error);
         operationLogger.recordError(compareOpId, error);
         operationLogger.endPhase(compareOpId, 'compare');
-        operationLogger.transitionState(compareOpId, 'running', 'failed');
+        operationLogger.transitionState(compareOpId, 'running', accessDenied ? 'skipped' : 'failed');
         operationLogger.completeOperation(compareOpId, {
-          status: 'failed'
+          status: accessDenied ? 'skipped' : 'failed'
         });
         errors.push({
-          error_type: 'sync_error',
+          error_type: accessDenied ? 'access_denied' : 'sync_error',
           odoo_model: model,
           error_message: error.message,
           stack_trace: error.stack
         });
+        if (accessDenied) {
+          continue;
+        }
         throw error;
       }
 
@@ -180,6 +188,7 @@ export class SyncEngine {
         + comparison.to_update.count
         + comparison.to_delete.count;
 
+      let skipRemainingOps = false;
       const createOpId = operationLogger.startOperation({
         sync_run_id: syncRunId,
         odoo_model: model,
@@ -192,13 +201,24 @@ export class SyncEngine {
       let createEntry = null;
       try {
         const createStart = Date.now();
+        const dependencySync = {
+          sourceClient,
+          targetClient,
+          dataPreserver,
+          rollbackOperations,
+          mock,
+          companyId,
+          attemptedModels: new Set(),
+          inProgress: new Set()
+        };
         createCount = await this.executeCreates(
           model,
           comparison.to_create.records,
           targetClient,
           dataPreserver,
           rollbackOperations,
-          mock
+          mock,
+          dependencySync
         );
         createDuration = Date.now() - createStart;
         operationLogger.endPhase(createOpId, 'create', { record_count: createCount });
@@ -208,13 +228,24 @@ export class SyncEngine {
           record_count: createCount
         });
       } catch (error) {
+        const accessDenied = this.isAccessDeniedError(error);
         operationLogger.recordError(createOpId, error);
         operationLogger.endPhase(createOpId, 'create');
-        operationLogger.transitionState(createOpId, 'running', 'failed');
+        operationLogger.transitionState(createOpId, 'running', accessDenied ? 'skipped' : 'failed');
         operationLogger.completeOperation(createOpId, {
-          status: 'failed'
+          status: accessDenied ? 'skipped' : 'failed'
         });
-        throw error;
+        errors.push({
+          error_type: accessDenied ? 'access_denied' : 'sync_error',
+          odoo_model: model,
+          error_message: error.message,
+          stack_trace: error.stack
+        });
+        if (accessDenied) {
+          skipRemainingOps = true;
+        } else {
+          throw error;
+        }
       }
       totalCreated += createCount;
       recordsProcessed += createCount;
@@ -229,31 +260,51 @@ export class SyncEngine {
       let updateCount = 0;
       let updateDuration = 0;
       let updateEntry = null;
-      try {
-        const updateStart = Date.now();
-        updateCount = await this.executeUpdates(
-          model,
-          comparison.to_update.records,
-          targetClient,
-          dataPreserver,
-          rollbackOperations,
-          mock
-        );
-        updateDuration = Date.now() - updateStart;
-        operationLogger.endPhase(updateOpId, 'update', { record_count: updateCount });
-        operationLogger.transitionState(updateOpId, 'running', 'completed');
+      if (!skipRemainingOps) {
+        try {
+          const updateStart = Date.now();
+          updateCount = await this.executeUpdates(
+            model,
+            comparison.to_update.records,
+            targetClient,
+            dataPreserver,
+            rollbackOperations,
+            mock
+          );
+          updateDuration = Date.now() - updateStart;
+          operationLogger.endPhase(updateOpId, 'update', { record_count: updateCount });
+          operationLogger.transitionState(updateOpId, 'running', 'completed');
+          updateEntry = operationLogger.completeOperation(updateOpId, {
+            status: 'completed',
+            record_count: updateCount
+          });
+        } catch (error) {
+          const accessDenied = this.isAccessDeniedError(error);
+          operationLogger.recordError(updateOpId, error);
+          operationLogger.endPhase(updateOpId, 'update');
+          operationLogger.transitionState(updateOpId, 'running', accessDenied ? 'skipped' : 'failed');
+          operationLogger.completeOperation(updateOpId, {
+            status: accessDenied ? 'skipped' : 'failed'
+          });
+          errors.push({
+            error_type: accessDenied ? 'access_denied' : 'sync_error',
+            odoo_model: model,
+            error_message: error.message,
+            stack_trace: error.stack
+          });
+          if (accessDenied) {
+            skipRemainingOps = true;
+          } else {
+            throw error;
+          }
+        }
+      } else {
+        operationLogger.endPhase(updateOpId, 'update', { record_count: 0 });
+        operationLogger.transitionState(updateOpId, 'running', 'skipped');
         updateEntry = operationLogger.completeOperation(updateOpId, {
-          status: 'completed',
-          record_count: updateCount
+          status: 'skipped',
+          record_count: 0
         });
-      } catch (error) {
-        operationLogger.recordError(updateOpId, error);
-        operationLogger.endPhase(updateOpId, 'update');
-        operationLogger.transitionState(updateOpId, 'running', 'failed');
-        operationLogger.completeOperation(updateOpId, {
-          status: 'failed'
-        });
-        throw error;
       }
       totalUpdated += updateCount;
       recordsProcessed += updateCount;
@@ -269,30 +320,48 @@ export class SyncEngine {
         });
         operationLogger.transitionState(deleteOpId, 'queued', 'running');
         operationLogger.startPhase(deleteOpId, 'delete');
-        try {
-          const deleteStart = Date.now();
-          deleteCount = await this.executeDeletes(
-            model,
-            comparison.to_delete.records,
-            targetClient,
-            rollbackOperations,
-            mock
-          );
-          deleteDuration = Date.now() - deleteStart;
-          operationLogger.endPhase(deleteOpId, 'delete', { record_count: deleteCount });
-          operationLogger.transitionState(deleteOpId, 'running', 'completed');
+        if (!skipRemainingOps) {
+          try {
+            const deleteStart = Date.now();
+            deleteCount = await this.executeDeletes(
+              model,
+              comparison.to_delete.records,
+              targetClient,
+              rollbackOperations,
+              mock
+            );
+            deleteDuration = Date.now() - deleteStart;
+            operationLogger.endPhase(deleteOpId, 'delete', { record_count: deleteCount });
+            operationLogger.transitionState(deleteOpId, 'running', 'completed');
+            deleteEntry = operationLogger.completeOperation(deleteOpId, {
+              status: 'completed',
+              record_count: deleteCount
+            });
+          } catch (error) {
+            const accessDenied = this.isAccessDeniedError(error);
+            operationLogger.recordError(deleteOpId, error);
+            operationLogger.endPhase(deleteOpId, 'delete');
+            operationLogger.transitionState(deleteOpId, 'running', accessDenied ? 'skipped' : 'failed');
+            operationLogger.completeOperation(deleteOpId, {
+              status: accessDenied ? 'skipped' : 'failed'
+            });
+            errors.push({
+              error_type: accessDenied ? 'access_denied' : 'sync_error',
+              odoo_model: model,
+              error_message: error.message,
+              stack_trace: error.stack
+            });
+            if (!accessDenied) {
+              throw error;
+            }
+          }
+        } else {
+          operationLogger.endPhase(deleteOpId, 'delete', { record_count: 0 });
+          operationLogger.transitionState(deleteOpId, 'running', 'skipped');
           deleteEntry = operationLogger.completeOperation(deleteOpId, {
-            status: 'completed',
-            record_count: deleteCount
+            status: 'skipped',
+            record_count: 0
           });
-        } catch (error) {
-          operationLogger.recordError(deleteOpId, error);
-          operationLogger.endPhase(deleteOpId, 'delete');
-          operationLogger.transitionState(deleteOpId, 'running', 'failed');
-          operationLogger.completeOperation(deleteOpId, {
-            status: 'failed'
-          });
-          throw error;
         }
         totalDeleted += deleteCount;
         recordsProcessed += deleteCount;
@@ -307,7 +376,7 @@ export class SyncEngine {
         operation_type: 'create',
         record_count: createCount,
         duration_ms: createDuration,
-        status: 'completed',
+        status: createEntry?.status || (skipRemainingOps ? 'skipped' : 'completed'),
         phase_timings: { create_ms: createDuration },
         state_transitions: createEntry?.state_transitions || []
       });
@@ -316,7 +385,7 @@ export class SyncEngine {
         operation_type: 'update',
         record_count: updateCount,
         duration_ms: updateDuration,
-        status: 'completed',
+        status: updateEntry?.status || (skipRemainingOps ? 'skipped' : 'completed'),
         phase_timings: { update_ms: updateDuration },
         state_transitions: updateEntry?.state_transitions || []
       });
@@ -325,7 +394,7 @@ export class SyncEngine {
         operation_type: 'delete',
         record_count: deleteCount,
         duration_ms: deleteDuration,
-        status: this.disableDeletes ? 'skipped' : 'completed',
+        status: this.disableDeletes ? 'skipped' : (deleteEntry?.status || (skipRemainingOps ? 'skipped' : 'completed')),
         phase_timings: { delete_ms: deleteDuration },
         state_transitions: deleteEntry?.state_transitions || []
       });
@@ -353,20 +422,49 @@ export class SyncEngine {
   /**
    * Get list of models to sync
    */
-  async getModelsToSync(sourceClient, modelFilter = null) {
+  async getModelsToSync(sourceClient, targetClient = null, modelFilter = null) {
     try {
       // Get all available models
       const allModels = await sourceClient.getModels();
-
-      // Extract model names
-      let models = allModels
-        .map(m => m.model)
-        .filter(m => m && !m.startsWith('_')); // Exclude internal models
-
-      // Filter by model_filter if provided
-      if (modelFilter && Array.isArray(modelFilter) && modelFilter.length > 0) {
-        models = models.filter(m => modelFilter.includes(m));
+      const allModelNames = new Set(
+        allModels
+          .map(m => m.model)
+          .filter(m => m && !m.startsWith('_'))
+      );
+      let targetModelNames = null;
+      if (targetClient) {
+        const targetModels = await targetClient.getModels();
+        targetModelNames = new Set(
+          targetModels
+            .map(m => m.model)
+            .filter(m => m && !m.startsWith('_'))
+        );
       }
+
+      if (!modelFilter || !Array.isArray(modelFilter) || modelFilter.length === 0) {
+        const models = Array.from(allModelNames).filter(name => (
+          targetModelNames ? targetModelNames.has(name) : true
+        ));
+        logger.info(`Models to sync: ${models.length}`);
+        return models;
+      }
+
+      const { models: modelNames, modules } = this.parseModelFilter(modelFilter);
+      const selectedModels = new Set();
+      modelNames.forEach(name => selectedModels.add(name));
+
+      for (const moduleName of modules) {
+        const moduleModels = await sourceClient.getModelsByModule(moduleName);
+        moduleModels.forEach(item => {
+          if (item?.model) {
+            selectedModels.add(item.model);
+          }
+        });
+      }
+
+      const models = Array.from(selectedModels).filter(name => (
+        allModelNames.has(name) && (targetModelNames ? targetModelNames.has(name) : true)
+      ));
 
       logger.info(`Models to sync: ${models.length}`);
       return models;
@@ -376,19 +474,114 @@ export class SyncEngine {
     }
   }
 
+  async getModelSelection(sourceClient, targetClient = null, modelFilter = null) {
+    const sourceModels = await sourceClient.getModels();
+    const sourceModelNames = new Set(
+      sourceModels
+        .map(m => m.model)
+        .filter(m => m && !m.startsWith('_'))
+    );
+
+    let targetModelNames = null;
+    if (targetClient) {
+      const targetModels = await targetClient.getModels();
+      targetModelNames = new Set(
+        targetModels
+          .map(m => m.model)
+          .filter(m => m && !m.startsWith('_'))
+      );
+    }
+
+    if (!modelFilter || !Array.isArray(modelFilter) || modelFilter.length === 0) {
+      const models = Array.from(sourceModelNames).filter(name => (
+        targetModelNames ? targetModelNames.has(name) : true
+      ));
+      return {
+        models,
+        missing_on_source: [],
+        missing_on_target: []
+      };
+    }
+
+    const { models: modelNames, modules } = this.parseModelFilter(modelFilter);
+    const desiredModels = new Set();
+
+    modelNames.forEach(name => {
+      if (name && !name.startsWith('_')) {
+        desiredModels.add(name);
+      }
+    });
+
+    for (const moduleName of modules) {
+      const moduleModels = await sourceClient.getModelsByModule(moduleName);
+      moduleModels.forEach(item => {
+        if (item?.model && !item.model.startsWith('_')) {
+          desiredModels.add(item.model);
+        }
+      });
+    }
+
+    const desiredList = Array.from(desiredModels);
+    const missingOnSource = desiredList.filter(name => !sourceModelNames.has(name));
+    const missingOnTarget = targetModelNames
+      ? desiredList.filter(name => !targetModelNames.has(name))
+      : [];
+    const models = desiredList.filter(name => (
+      sourceModelNames.has(name) && (targetModelNames ? targetModelNames.has(name) : true)
+    ));
+
+    return {
+      models,
+      missing_on_source: missingOnSource,
+      missing_on_target: missingOnTarget
+    };
+  }
+
+  parseModelFilter(modelFilter) {
+    const models = [];
+    const modules = [];
+
+    for (const entry of modelFilter) {
+      if (typeof entry !== 'string') {
+        continue;
+      }
+      const trimmed = entry.trim();
+      if (!trimmed) {
+        continue;
+      }
+      if (trimmed.startsWith('module:')) {
+        const moduleName = trimmed.slice('module:'.length).trim();
+        if (moduleName) {
+          modules.push(moduleName);
+        }
+        continue;
+      }
+      if (trimmed.includes('.')) {
+        models.push(trimmed);
+      } else {
+        modules.push(trimmed);
+      }
+    }
+
+    return { models, modules };
+  }
+
   /**
    * Compare a single model between source and target
    */
-  async compareModel(sourceClient, targetClient, model) {
+  async compareModel(sourceClient, targetClient, model, companyId = null) {
     try {
       logger.debug(`Comparing model: ${model}`);
 
+      const sourceDomain = await this.getCompanyDomain(sourceClient, model, companyId);
+      const targetDomain = await this.getCompanyDomain(targetClient, model, companyId);
+
       // Get all records from source
-      const sourceRecords = await sourceClient.search(model, [], 0, 0);
+      const sourceRecords = await sourceClient.search(model, sourceDomain, 0, 0);
       logger.debug(`Source: ${sourceRecords.length} records in ${model}`);
 
       // Get all records from target
-      const targetRecords = await targetClient.search(model, [], 0, 0);
+      const targetRecords = await targetClient.search(model, targetDomain, 0, 0);
       logger.debug(`Target: ${targetRecords.length} records in ${model}`);
 
       // Get full record data
@@ -520,7 +713,7 @@ export class SyncEngine {
     return { hasDifferences, differences };
   }
 
-  async executeCreates(model, records, targetClient, dataPreserver, rollbackOperations, mock) {
+  async executeCreates(model, records, targetClient, dataPreserver, rollbackOperations, mock, dependencySync = null) {
     let count = 0;
 
     for (const record of records) {
@@ -557,7 +750,22 @@ export class SyncEngine {
           }
         }
 
-        await targetClient.create(model, filteredValues);
+        try {
+          await targetClient.create(model, filteredValues);
+        } catch (error) {
+          if (dependencySync && this.shouldRetryAfterDependencySync(error)) {
+            const retryKey = `${model}`;
+            if (!dependencySync.attemptedModels.has(retryKey)) {
+              dependencySync.attemptedModels.add(retryKey);
+              await this.syncModelDependencies(dependencySync, model);
+              await targetClient.create(model, filteredValues);
+            } else {
+              throw error;
+            }
+          } else {
+            throw error;
+          }
+        }
       }
 
       rollbackOperations.created.push({
@@ -569,6 +777,91 @@ export class SyncEngine {
     }
 
     return count;
+  }
+
+  shouldRetryAfterDependencySync(error) {
+    const name = error?.details?.data?.name || '';
+    if (name === 'odoo.exceptions.ValidationError') {
+      return true;
+    }
+    if (name === 'odoo.exceptions.MissingError') {
+      return true;
+    }
+    if (name === 'odoo.exceptions.UserError') {
+      return true;
+    }
+    const message = error?.details?.data?.message || error?.message || '';
+    return /missing/i.test(message) || /must be set/i.test(message);
+  }
+
+  async syncModelDependencies(dependencySync, model) {
+    const {
+      sourceClient,
+      targetClient,
+      dataPreserver,
+      rollbackOperations,
+      mock,
+      companyId
+    } = dependencySync;
+
+    if (!sourceClient || !targetClient) {
+      return;
+    }
+
+    if (dependencySync.inProgress.has(model)) {
+      return;
+    }
+
+    dependencySync.inProgress.add(model);
+
+    try {
+      const fields = await sourceClient.getModelFields(model);
+      const dependencies = Object.values(fields || {})
+        .filter(field => field?.type === 'many2one' && typeof field?.comodel_name === 'string')
+        .map(field => field.comodel_name)
+        .filter(dep => dep && dep !== model && !dep.startsWith('_'));
+
+      if (dependencies.length === 0) {
+        return;
+      }
+
+      const selection = await this.getModelSelection(sourceClient, targetClient, dependencies);
+      const modelsToSync = selection.models.filter(dep => dep !== model);
+
+      for (const depModel of modelsToSync) {
+        try {
+          const comparison = await this.compareModel(
+            sourceClient,
+            targetClient,
+            depModel,
+            companyId
+          );
+          await this.executeCreates(
+            depModel,
+            comparison.to_create.records,
+            targetClient,
+            dataPreserver,
+            rollbackOperations,
+            mock,
+            dependencySync
+          );
+          await this.executeUpdates(
+            depModel,
+            comparison.to_update.records,
+            targetClient,
+            dataPreserver,
+            rollbackOperations,
+            mock
+          );
+        } catch (error) {
+          if (!this.isAccessDeniedError(error)) {
+            logger.warn(`Dependency sync failed for ${depModel}: ${error.message}`);
+          }
+        }
+      }
+    } finally {
+      dependencySync.inProgress.delete(model);
+    }
   }
 
   async executeUpdates(model, records, targetClient, dataPreserver, rollbackOperations, mock) {
@@ -724,6 +1017,24 @@ export class SyncEngine {
     const names = new Set(Object.keys(fields || {}));
     this.modelFieldNames.set(model, names);
     return names;
+  }
+
+  async getCompanyDomain(client, model, companyId) {
+    if (!companyId || !client) {
+      return [];
+    }
+
+    try {
+      const fields = await client.getModelFields(model);
+      const fieldNames = new Set(Object.keys(fields || {}));
+      if (fieldNames.has('company_id')) {
+        return [['company_id', '=', companyId]];
+      }
+    } catch (error) {
+      logger.warn(`Failed to detect company filter for ${model}: ${error.message}`);
+    }
+
+    return [];
   }
 
   extractCompanyRef(companyValue, record) {

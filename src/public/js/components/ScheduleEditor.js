@@ -1,4 +1,5 @@
 import apiClient from '../services/apiClient.js';
+import ModelSelector from './ModelSelector.js';
 
 /**
  * Schedule Editor Component
@@ -9,6 +10,10 @@ export class ScheduleEditor {
     this.schedules = [];
     this.connections = [];
     this.editingId = null;
+    this.modelSelector = new ModelSelector();
+    this.pendingModelFilter = null;
+    this.pendingCompanyId = null;
+    this.pendingModuleFilter = null;
   }
 
   async load() {
@@ -86,7 +91,22 @@ export class ScheduleEditor {
                 ${connectionOptions}
               </select>
             </div>
+            <div class="form-group">
+              <label for="schedule-company">Company</label>
+              <select id="schedule-company">
+                <option value="">All companies</option>
+              </select>
+            </div>
           </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label for="schedule-modules">Modules</label>
+              <select id="schedule-modules" multiple size="6"></select>
+            </div>
+          </div>
+
+          ${this.modelSelector.render('schedule-models', 'Schedule Models')}
 
           <div class="form-row">
             <div class="form-group">
@@ -162,7 +182,7 @@ export class ScheduleEditor {
     `;
   }
 
-  attachHandlers(onRefresh) {
+  async attachHandlers(onRefresh) {
     const container = document.getElementById('schedule-container');
     if (!container) return;
 
@@ -192,6 +212,18 @@ export class ScheduleEditor {
     const form = document.getElementById('schedule-form');
     const frequencySelect = document.getElementById('schedule-frequency');
     const cronInput = document.getElementById('schedule-cron');
+    const scheduleSource = document.getElementById('schedule-source');
+
+    this.modelSelector.attachHandlers('schedule-models');
+    await this.loadModelsForSelector('schedule-models', 'schedule-source');
+    await this.loadCompaniesForSelect('schedule-company', 'schedule-source');
+    await this.loadModulesForSelect('schedule-modules', 'schedule-source');
+
+    scheduleSource?.addEventListener('change', async () => {
+      await this.loadModelsForSelector('schedule-models', 'schedule-source');
+      await this.loadCompaniesForSelect('schedule-company', 'schedule-source');
+      await this.loadModulesForSelect('schedule-modules', 'schedule-source');
+    });
 
     const updateCron = () => {
       const frequency = frequencySelect.value;
@@ -222,6 +254,9 @@ export class ScheduleEditor {
 
     document.getElementById('schedule-cancel')?.addEventListener('click', () => {
       this.editingId = null;
+      this.pendingModelFilter = null;
+      this.pendingCompanyId = null;
+      this.pendingModuleFilter = null;
       if (onRefresh) onRefresh();
     });
   }
@@ -231,6 +266,9 @@ export class ScheduleEditor {
     if (!schedule) return;
 
     this.editingId = id;
+    this.pendingModelFilter = this.parseModelFilterValue(schedule.model_filter);
+    this.pendingCompanyId = schedule.company_id ?? null;
+    this.pendingModuleFilter = this.pendingModelFilter;
     document.getElementById('schedule-name').value = schedule.name || '';
     document.getElementById('schedule-source').value = schedule.source_db_id;
     document.getElementById('schedule-target').value = schedule.target_db_id;
@@ -239,6 +277,9 @@ export class ScheduleEditor {
     document.getElementById('schedule-email').value = schedule.notification_email || '';
     document.getElementById('schedule-notify-error').value = schedule.notify_on_error ? '1' : '0';
     document.getElementById('schedule-notify-success').value = schedule.notify_on_success ? '1' : '0';
+    document.getElementById('schedule-company').value = schedule.company_id ? String(schedule.company_id) : '';
+    this.applyModelSelection('schedule-models', this.pendingModelFilter);
+    this.applyModuleSelection('schedule-modules', this.pendingModuleFilter);
   }
 
   collectFormValues() {
@@ -250,8 +291,197 @@ export class ScheduleEditor {
       timezone: document.getElementById('schedule-timezone').value,
       notification_email: document.getElementById('schedule-email').value.trim() || null,
       notify_on_error: Number(document.getElementById('schedule-notify-error').value),
-      notify_on_success: Number(document.getElementById('schedule-notify-success').value)
+      notify_on_success: Number(document.getElementById('schedule-notify-success').value),
+      model_filter: this.mergeFilters(
+        this.modelSelector.getSelectedModels('schedule-models'),
+        this.getSelectedOptions('schedule-modules')
+      ),
+      company_id: Number(document.getElementById('schedule-company').value) || null
     };
+  }
+
+  parseModelFilterValue(value) {
+    if (!value) {
+      return null;
+    }
+    if (Array.isArray(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  applyModelSelection(prefix, modelFilter) {
+    const list = document.getElementById(`${prefix}-list`);
+    const allCheckbox = document.getElementById(`${prefix}-all`);
+    const searchInput = document.getElementById(`${prefix}-search`);
+
+    if (!list || !allCheckbox || !searchInput) {
+      return;
+    }
+
+    if (!Array.isArray(modelFilter) || modelFilter.length === 0) {
+      const checkboxes = list.querySelectorAll('input[type="checkbox"]');
+      checkboxes.forEach(box => {
+        box.checked = true;
+      });
+      allCheckbox.checked = true;
+      searchInput.disabled = checkboxes.length === 0;
+      return;
+    }
+
+    const models = [];
+    modelFilter.forEach(entry => {
+      if (typeof entry !== 'string') {
+        return;
+      }
+      const trimmed = entry.trim();
+      if (!trimmed) {
+        return;
+      }
+      if (trimmed.includes('.')) {
+        models.push(trimmed);
+      }
+    });
+
+    const modelSet = new Set(models);
+    const checkboxes = list.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach(box => {
+      box.checked = modelSet.has(box.value);
+    });
+
+    allCheckbox.checked = false;
+    searchInput.disabled = checkboxes.length === 0;
+  }
+
+  applyModuleSelection(selectId, modelFilter) {
+    const select = document.getElementById(selectId);
+    if (!select) {
+      return;
+    }
+    const modules = [];
+    if (Array.isArray(modelFilter)) {
+      modelFilter.forEach(entry => {
+        if (typeof entry !== 'string') {
+          return;
+        }
+        const trimmed = entry.trim();
+        if (!trimmed) {
+          return;
+        }
+        if (trimmed.startsWith('module:')) {
+          const name = trimmed.slice('module:'.length).trim();
+          if (name) {
+            modules.push(name);
+          }
+        } else if (!trimmed.includes('.')) {
+          modules.push(trimmed);
+        }
+      });
+    }
+
+    const moduleSet = new Set(modules);
+    Array.from(select.options).forEach(option => {
+      option.selected = moduleSet.has(option.value);
+    });
+  }
+
+  async loadModelsForSelector(prefix, sourceSelectId) {
+    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
+    if (!sourceId) {
+      this.modelSelector.setStatus(prefix, 'Select a source connection to load models.');
+      return;
+    }
+
+    this.modelSelector.setStatus(prefix, 'Loading models...');
+    try {
+      const response = await apiClient.getSyncModels(sourceId);
+      this.modelSelector.setModels(prefix, response.models || []);
+      if (this.pendingModelFilter) {
+        this.applyModelSelection(prefix, this.pendingModelFilter);
+      }
+    } catch (error) {
+      this.modelSelector.setStatus(prefix, error?.data?.message || 'Failed to load models.');
+    }
+  }
+
+  async loadModulesForSelect(selectId, sourceSelectId) {
+    const select = document.getElementById(selectId);
+    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
+    if (!select) {
+      return;
+    }
+    if (!sourceId) {
+      select.innerHTML = '';
+      return;
+    }
+
+    select.innerHTML = '';
+    try {
+      const response = await apiClient.getSyncModules(sourceId);
+      const modules = response.modules || [];
+      const options = modules
+        .map(module => `<option value="${module.name}">${this.escapeHtml(module.description || module.name)}</option>`)
+        .join('');
+      select.innerHTML = options;
+      if (this.pendingModuleFilter) {
+        this.applyModuleSelection(selectId, this.pendingModuleFilter);
+        this.pendingModuleFilter = null;
+      }
+    } catch (error) {
+      select.innerHTML = '';
+    }
+  }
+
+  getSelectedOptions(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) {
+      return [];
+    }
+    return Array.from(select.selectedOptions)
+      .map(option => option.value)
+      .filter(Boolean);
+  }
+
+  mergeFilters(modelFilter, moduleFilter) {
+    const models = Array.isArray(modelFilter) ? modelFilter : [];
+    const modules = Array.isArray(moduleFilter) ? moduleFilter : [];
+    const combined = [...models, ...modules];
+    return combined.length > 0 ? combined : null;
+  }
+  async loadCompaniesForSelect(selectId, sourceSelectId) {
+    const select = document.getElementById(selectId);
+    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
+    if (!select) {
+      return;
+    }
+    if (!sourceId) {
+      select.innerHTML = '<option value="">All companies</option>';
+      return;
+    }
+
+    select.innerHTML = '<option value="">Loading companies...</option>';
+    try {
+      const response = await apiClient.getSyncCompanies(sourceId);
+      const companies = response.companies || [];
+      const options = companies
+        .map(company => `<option value="${company.id}">${this.escapeHtml(company.name)}</option>`)
+        .join('');
+      select.innerHTML = `<option value="">All companies</option>${options}`;
+      if (this.pendingCompanyId) {
+        select.value = String(this.pendingCompanyId);
+        this.pendingCompanyId = null;
+      }
+    } catch (error) {
+      select.innerHTML = '<option value="">All companies</option>';
+    }
   }
 
   buildCronExpression(frequency) {

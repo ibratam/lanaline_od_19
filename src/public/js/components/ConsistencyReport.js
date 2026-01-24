@@ -24,6 +24,7 @@ export class ConsistencyReport {
 
     const { summary, samples, total_records } = report;
     const isConsistent = report.status === 'consistent';
+    const totalRecordsLabel = Number.isFinite(total_records) ? total_records : 'N/A';
 
     let html = `
       <div class="consistency-report">
@@ -38,7 +39,7 @@ export class ConsistencyReport {
         <div class="report-summary">
           <div class="summary-item">
             <div class="summary-label">Total Records Checked</div>
-            <div class="summary-value">${total_records}</div>
+            <div class="summary-value">${totalRecordsLabel}</div>
           </div>
           <div class="summary-item">
             <div class="summary-label">Data Mismatches</div>

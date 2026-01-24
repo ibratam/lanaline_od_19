@@ -7,42 +7,51 @@
   <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
-  <header>
-    <div class="container">
-      <h1>🔄 Odoo Database Synchronization Middleware</h1>
+  <header class="app-header">
+    <div class="container app-header-inner">
+      <div>
+        <h1>🔄 Odoo Database Synchronization Middleware</h1>
+        <p class="app-subtitle">Control cross-environment data flows with clarity and safety.</p>
+      </div>
+      <div class="app-header-meta">
+        <span class="meta-pill">Middleware UI</span>
+        <span class="meta-pill">Odoo Multi-DB</span>
+      </div>
     </div>
   </header>
 
-  <div class="container">
-    <!-- Navigation Tabs -->
-    <nav class="tabs">
-      <button class="tab-btn active" data-tab="config">
-        ⚙️ Configuration
-      </button>
-      <button class="tab-btn" data-tab="preview">
-        👁️ Preview
-      </button>
-      <button class="tab-btn" data-tab="sync">
-        🔄 Synchronize
-      </button>
-      <button class="tab-btn" data-tab="schedule">
-        ⏰ Schedule
-      </button>
-      <button class="tab-btn" data-tab="history">
-        📋 History
-      </button>
-      <button class="tab-btn" data-tab="conflicts">
-        ⚠️ Conflicts
-      </button>
-      <button class="tab-btn" data-tab="consistency">
-        ✓ Data Consistency
-      </button>
-      <button class="tab-btn" data-tab="operations">
-        📊 Operation Logs
-      </button>
-    </nav>
+  <div class="container app-shell">
+    <aside class="app-nav">
+      <nav class="tabs">
+        <button class="tab-btn active" data-tab="config">
+          ⚙️ Configuration
+        </button>
+        <button class="tab-btn" data-tab="preview">
+          👁️ Preview
+        </button>
+        <button class="tab-btn" data-tab="sync">
+          🔄 Synchronize
+        </button>
+        <button class="tab-btn" data-tab="schedule">
+          ⏰ Schedule
+        </button>
+        <button class="tab-btn" data-tab="history">
+          📋 History
+        </button>
+        <button class="tab-btn" data-tab="conflicts">
+          ⚠️ Conflicts
+        </button>
+        <button class="tab-btn" data-tab="consistency">
+          ✓ Data Consistency
+        </button>
+        <button class="tab-btn" data-tab="operations">
+          📊 Operation Logs
+        </button>
+      </nav>
+    </aside>
 
-    <!-- Tab Content -->
+    <main class="app-main">
+      <!-- Tab Content -->
 
     <!-- Configuration Tab -->
     <div id="config" class="tab-content active">
@@ -161,6 +170,7 @@
         </div>
       </div>
     </div>
+    </main>
   </div>
 
   <!-- Scripts -->

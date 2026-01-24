@@ -57,6 +57,13 @@ export function createConflictsRouter(db, services = {}) {
     const cursorParam = req.query.cursor || null;
     const state = req.query.state || null;
     const model = req.query.model || null;
+    const modelsParam = req.query.models || null;
+    const models = modelsParam
+      ? String(modelsParam)
+        .split(',')
+        .map(entry => entry.trim())
+        .filter(Boolean)
+      : [];
 
     if (state && !STATE_MAP.has(state)) {
       throw new ValidationError('state must be detected, resolved, applied, failed_resolution, or needs_manual_review');
@@ -79,7 +86,11 @@ export function createConflictsRouter(db, services = {}) {
     const params = [];
     let sql = 'SELECT * FROM sync_conflicts WHERE 1=1';
 
-    if (model) {
+    if (models.length > 0) {
+      const placeholders = models.map(() => '?').join(', ');
+      sql += ` AND odoo_model IN (${placeholders})`;
+      params.push(...models);
+    } else if (model) {
       sql += ' AND odoo_model = ?';
       params.push(model);
     }

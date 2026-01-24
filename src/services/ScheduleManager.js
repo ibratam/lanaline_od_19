@@ -92,6 +92,7 @@ export class ScheduleManager {
           ? JSON.parse(schedule.model_filter)
           : schedule.model_filter)
         : null;
+      const companyId = schedule.company_id ?? null;
 
       syncRun = this.historyLogger.createRun({
         source_db_id: schedule.source_db_id,
@@ -135,6 +136,7 @@ export class ScheduleManager {
         sourceClient,
         targetClient,
         modelFilter: modelFilter,
+        companyId,
         dataPreserver: this.dataPreserver,
         mock: mockMode
       });

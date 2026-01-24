@@ -158,6 +158,16 @@ class OdooSyncApp {
           <select id="preview-target">${options}</select>
         </div>
         <div class="form-group">
+          <label for="preview-company">Company</label>
+          <select id="preview-company">
+            <option value="">All companies</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="preview-modules">Modules</label>
+          <select id="preview-modules" multiple size="6"></select>
+        </div>
+        <div class="form-group">
           <button class="btn btn-primary" id="preview-btn">Generate Preview</button>
         </div>
       </div>
@@ -166,10 +176,14 @@ class OdooSyncApp {
 
     this.previewModelSelector.attachHandlers('preview-models');
     await this.loadModelsForSelector('preview-models', 'preview-source', this.previewModelSelector);
+    await this.loadCompaniesForSelect('preview-company', 'preview-source');
+    await this.loadModulesForSelect('preview-modules', 'preview-source');
 
     const previewSource = document.getElementById('preview-source');
     previewSource?.addEventListener('change', async () => {
       await this.loadModelsForSelector('preview-models', 'preview-source', this.previewModelSelector);
+      await this.loadCompaniesForSelect('preview-company', 'preview-source');
+      await this.loadModulesForSelect('preview-modules', 'preview-source');
     });
 
     const previewButton = document.getElementById('preview-btn');
@@ -178,6 +192,8 @@ class OdooSyncApp {
       const targetId = Number(document.getElementById('preview-target')?.value);
       const container = document.getElementById('preview-container');
       const modelFilter = this.previewModelSelector.getSelectedModels('preview-models');
+      const moduleFilter = this.getSelectedOptions('preview-modules');
+      const companyId = Number(document.getElementById('preview-company')?.value) || null;
 
       if (!sourceId || !targetId || sourceId === targetId) {
         if (container) {
@@ -186,7 +202,8 @@ class OdooSyncApp {
         return;
       }
 
-      const html = await this.previewDisplay.load(sourceId, targetId, modelFilter);
+      const mergedFilter = this.mergeFilters(modelFilter, moduleFilter);
+      const html = await this.previewDisplay.load(sourceId, targetId, mergedFilter, companyId);
       if (container) {
         container.innerHTML = html;
       }
@@ -215,6 +232,16 @@ class OdooSyncApp {
           <select id="sync-target">${options}</select>
         </div>
         <div class="form-group">
+          <label for="sync-company">Company</label>
+          <select id="sync-company">
+            <option value="">All companies</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="sync-modules">Modules</label>
+          <select id="sync-modules" multiple size="6"></select>
+        </div>
+        <div class="form-group">
           <button class="btn btn-primary" id="sync-start-btn">Start Sync</button>
           <button class="btn btn-secondary" id="sync-rollback-btn">Rollback</button>
         </div>
@@ -224,10 +251,14 @@ class OdooSyncApp {
 
     this.syncModelSelector.attachHandlers('sync-models');
     await this.loadModelsForSelector('sync-models', 'sync-source', this.syncModelSelector);
+    await this.loadCompaniesForSelect('sync-company', 'sync-source');
+    await this.loadModulesForSelect('sync-modules', 'sync-source');
 
     const syncSource = document.getElementById('sync-source');
     syncSource?.addEventListener('change', async () => {
       await this.loadModelsForSelector('sync-models', 'sync-source', this.syncModelSelector);
+      await this.loadCompaniesForSelect('sync-company', 'sync-source');
+      await this.loadModulesForSelect('sync-modules', 'sync-source');
     });
 
     const startButton = document.getElementById('sync-start-btn');
@@ -235,6 +266,8 @@ class OdooSyncApp {
       const sourceId = Number(document.getElementById('sync-source')?.value);
       const targetId = Number(document.getElementById('sync-target')?.value);
       const modelFilter = this.syncModelSelector.getSelectedModels('sync-models');
+      const moduleFilter = this.getSelectedOptions('sync-modules');
+      const companyId = Number(document.getElementById('sync-company')?.value) || null;
 
       if (!sourceId || !targetId || sourceId === targetId) {
         this.showError('Select two different connections to start sync.');
@@ -242,10 +275,12 @@ class OdooSyncApp {
       }
 
       try {
+        const mergedFilter = this.mergeFilters(modelFilter, moduleFilter);
         const response = await apiClient.executeSync({
           source_db_id: sourceId,
           target_db_id: targetId,
-          model_filter: modelFilter
+          model_filter: mergedFilter,
+          company_id: companyId
         });
         this.lastSyncRunId = response.sync_run_id;
         this.progressMonitor.start((status) => {
@@ -287,7 +322,7 @@ class OdooSyncApp {
 
     const html = await this.scheduleEditor.load();
     container.innerHTML = html;
-    this.scheduleEditor.attachHandlers(async () => {
+    await this.scheduleEditor.attachHandlers(async () => {
       await this.loadScheduleTab();
     });
   }
@@ -449,6 +484,77 @@ class OdooSyncApp {
     } catch (error) {
       selector.setStatus(prefix, error?.data?.message || 'Failed to load models.');
     }
+  }
+
+  async loadCompaniesForSelect(selectId, sourceSelectId) {
+    const select = document.getElementById(selectId);
+    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
+    if (!select) {
+      return;
+    }
+    if (!sourceId) {
+      select.innerHTML = '<option value="">All companies</option>';
+      return;
+    }
+
+    select.innerHTML = '<option value="">Loading companies...</option>';
+    try {
+      const response = await apiClient.getSyncCompanies(sourceId);
+      const companies = response.companies || [];
+      const options = companies
+        .map(company => `<option value="${company.id}">${this.escapeHtml(company.name)}</option>`)
+        .join('');
+      select.innerHTML = `<option value="">All companies</option>${options}`;
+    } catch (error) {
+      select.innerHTML = '<option value="">All companies</option>';
+    }
+  }
+
+  async loadModulesForSelect(selectId, sourceSelectId) {
+    const select = document.getElementById(selectId);
+    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
+    if (!select) {
+      return;
+    }
+    if (!sourceId) {
+      select.innerHTML = '';
+      return;
+    }
+
+    select.innerHTML = '';
+    try {
+      const response = await apiClient.getSyncModules(sourceId);
+      const modules = response.modules || [];
+      const options = modules
+        .map(module => `<option value="${module.name}">${this.escapeHtml(module.description || module.name)}</option>`)
+        .join('');
+      select.innerHTML = options;
+    } catch (error) {
+      select.innerHTML = '';
+    }
+  }
+
+  getSelectedOptions(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) {
+      return [];
+    }
+    return Array.from(select.selectedOptions)
+      .map(option => option.value)
+      .filter(Boolean);
+  }
+
+  mergeFilters(modelFilter, moduleFilter) {
+    const models = Array.isArray(modelFilter) ? modelFilter : [];
+    const modules = Array.isArray(moduleFilter) ? moduleFilter : [];
+    const combined = [...models, ...modules];
+    return combined.length > 0 ? combined : null;
+  }
+
+  escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text ?? '';
+    return div.innerHTML;
   }
 
   /**

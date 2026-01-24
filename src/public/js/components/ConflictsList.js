@@ -9,13 +9,34 @@ export class ConflictsList {
     this.conflicts = [];
     this.stateFilter = 'detected';
     this.modelFilter = '';
+    this.modelFilters = [];
+    this.modules = [];
+    this.moduleFilter = [];
+    this.connections = [];
+    this.sourceId = null;
     this.cursor = null;
   }
 
   async load() {
+    if (!this.connections.length) {
+      try {
+        this.connections = await apiClient.getConfigs();
+        if (!this.sourceId && this.connections.length > 0) {
+          this.sourceId = this.connections[0].id;
+        }
+      } catch {
+        this.connections = [];
+      }
+    }
+
+    if (this.sourceId && this.modules.length === 0) {
+      await this.loadModulesForSource(this.sourceId);
+    }
+
     const response = await apiClient.getConflicts({
       state: this.stateFilter || undefined,
       model: this.modelFilter || undefined,
+      models: this.modelFilters.length > 0 ? this.modelFilters : undefined,
       cursor: this.cursor || undefined,
       limit: 25
     });
@@ -26,6 +47,17 @@ export class ConflictsList {
   }
 
   render() {
+    const connectionOptions = this.connections
+      .map(conn => `<option value="${conn.id}" ${this.sourceId === conn.id ? 'selected' : ''}>${this.escapeHtml(conn.name)}</option>`)
+      .join('');
+    const moduleOptions = this.modules
+      .map(module => `
+        <option value="${module.name}" ${this.moduleFilter.includes(module.name) ? 'selected' : ''}>
+          ${this.escapeHtml(module.description || module.name)}
+        </option>
+      `)
+      .join('');
+
     const rows = this.conflicts.length
       ? this.conflicts.map(conflict => `
         <tr>
@@ -44,6 +76,12 @@ export class ConflictsList {
       <div class="conflicts-filters">
         <div class="form-row">
           <div class="form-group">
+            <label for="conflicts-source">Source</label>
+            <select id="conflicts-source">
+              ${connectionOptions}
+            </select>
+          </div>
+          <div class="form-group">
             <label for="conflicts-state">State</label>
             <select id="conflicts-state">
               <option value="">All</option>
@@ -57,6 +95,12 @@ export class ConflictsList {
           <div class="form-group">
             <label for="conflicts-model">Model</label>
             <input type="text" id="conflicts-model" placeholder="res.partner" value="${this.escapeHtml(this.modelFilter)}">
+          </div>
+          <div class="form-group">
+            <label for="conflicts-modules">Modules</label>
+            <select id="conflicts-modules" multiple size="6">
+              ${moduleOptions}
+            </select>
           </div>
           <div class="form-group">
             <button class="btn btn-secondary" id="conflicts-apply">Apply</button>
@@ -89,9 +133,33 @@ export class ConflictsList {
   }
 
   attachHandlers(onRefresh, onSelectConflict) {
-    document.getElementById('conflicts-apply')?.addEventListener('click', () => {
+    document.getElementById('conflicts-source')?.addEventListener('change', async () => {
+      const sourceId = Number(document.getElementById('conflicts-source')?.value) || null;
+      if (sourceId) {
+        this.sourceId = sourceId;
+        await this.loadModulesForSource(sourceId);
+        onRefresh();
+      }
+    });
+
+    document.getElementById('conflicts-apply')?.addEventListener('click', async () => {
+      const sourceId = Number(document.getElementById('conflicts-source')?.value) || null;
+      if (sourceId && sourceId !== this.sourceId) {
+        this.sourceId = sourceId;
+        await this.loadModulesForSource(sourceId);
+      }
       this.stateFilter = document.getElementById('conflicts-state').value;
       this.modelFilter = document.getElementById('conflicts-model').value.trim();
+      this.moduleFilter = this.getSelectedOptions('conflicts-modules');
+      this.modelFilters = [];
+      if (this.moduleFilter.length > 0 && this.sourceId) {
+        try {
+          const response = await apiClient.getSyncModuleModels(this.sourceId, this.moduleFilter);
+          this.modelFilters = response.models || [];
+        } catch {
+          this.modelFilters = [];
+        }
+      }
       this.cursor = null;
       onRefresh();
     });
@@ -111,6 +179,29 @@ export class ConflictsList {
         }
       });
     });
+  }
+
+  async loadModulesForSource(sourceId) {
+    if (!sourceId) {
+      this.modules = [];
+      return;
+    }
+    try {
+      const response = await apiClient.getSyncModules(sourceId);
+      this.modules = response.modules || [];
+    } catch {
+      this.modules = [];
+    }
+  }
+
+  getSelectedOptions(selectId) {
+    const select = document.getElementById(selectId);
+    if (!select) {
+      return [];
+    }
+    return Array.from(select.selectedOptions)
+      .map(option => option.value)
+      .filter(Boolean);
   }
 
   escapeHtml(text) {

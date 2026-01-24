@@ -82,6 +82,127 @@ export function createSyncRouter(db, services) {
   }));
 
   /**
+   * GET /api/sync/modules
+   * List installed modules for a source connection
+   */
+  router.get('/modules', asyncHandler(async (req, res) => {
+    const sourceDbId = Number(req.query.source_db_id);
+    if (!Number.isInteger(sourceDbId) || sourceDbId <= 0) {
+      throw new ValidationError('source_db_id is required');
+    }
+
+    const sourceConnection = await configManager.getConnectionWithPassword(sourceDbId);
+    if (!sourceConnection) {
+      throw new NotFoundError(`Source database ${sourceDbId} not found`);
+    }
+
+    const sourceClient = new OdooClient(
+      sourceConnection.url,
+      sourceConnection.database_name,
+      sourceConnection.username,
+      sourceConnection.password
+    );
+
+    try {
+      await sourceClient.authenticate();
+      const modules = await sourceClient.getModules();
+      const normalized = modules.map(module => ({
+        name: module.name,
+        description: module.shortdesc || module.name
+      }));
+      res.json({ modules: normalized });
+    } finally {
+      await sourceClient.close();
+    }
+  }));
+
+  /**
+   * GET /api/sync/module-models
+   * Resolve module names to model list for a source connection
+   */
+  router.get('/module-models', asyncHandler(async (req, res) => {
+    const sourceDbId = Number(req.query.source_db_id);
+    const modulesParam = req.query.modules || '';
+
+    if (!Number.isInteger(sourceDbId) || sourceDbId <= 0) {
+      throw new ValidationError('source_db_id is required');
+    }
+
+    const modules = modulesParam
+      .split(',')
+      .map(entry => entry.trim())
+      .filter(Boolean);
+
+    if (modules.length === 0) {
+      res.json({ models: [] });
+      return;
+    }
+
+    const sourceConnection = await configManager.getConnectionWithPassword(sourceDbId);
+    if (!sourceConnection) {
+      throw new NotFoundError(`Source database ${sourceDbId} not found`);
+    }
+
+    const sourceClient = new OdooClient(
+      sourceConnection.url,
+      sourceConnection.database_name,
+      sourceConnection.username,
+      sourceConnection.password
+    );
+
+    try {
+      await sourceClient.authenticate();
+      const modelSet = new Set();
+      for (const moduleName of modules) {
+        const moduleModels = await sourceClient.getModelsByModule(moduleName);
+        moduleModels.forEach(item => {
+          if (item?.model) {
+            modelSet.add(item.model);
+          }
+        });
+      }
+      res.json({ models: Array.from(modelSet) });
+    } finally {
+      await sourceClient.close();
+    }
+  }));
+
+  /**
+   * GET /api/sync/companies
+   * List available companies for a source connection
+   */
+  router.get('/companies', asyncHandler(async (req, res) => {
+    const sourceDbId = Number(req.query.source_db_id);
+    if (!Number.isInteger(sourceDbId) || sourceDbId <= 0) {
+      throw new ValidationError('source_db_id is required');
+    }
+
+    const sourceConnection = await configManager.getConnectionWithPassword(sourceDbId);
+    if (!sourceConnection) {
+      throw new NotFoundError(`Source database ${sourceDbId} not found`);
+    }
+
+    const sourceClient = new OdooClient(
+      sourceConnection.url,
+      sourceConnection.database_name,
+      sourceConnection.username,
+      sourceConnection.password
+    );
+
+    try {
+      await sourceClient.authenticate();
+      const companies = await sourceClient.getCompanies();
+      const normalized = companies.map(company => ({
+        id: company.id,
+        name: company.name
+      }));
+      res.json({ companies: normalized });
+    } finally {
+      await sourceClient.close();
+    }
+  }));
+
+  /**
    * POST /api/sync/preview
    * Generate preview of what will be synchronized
    */
@@ -89,7 +210,8 @@ export function createSyncRouter(db, services) {
     const {
       source_db_id,
       target_db_id,
-      model_filter
+      model_filter,
+      company_id
     } = req.body;
 
     // Validate inputs
@@ -105,7 +227,8 @@ export function createSyncRouter(db, services) {
       logger.info('Generating sync preview', {
         source_db_id,
         target_db_id,
-        model_filter
+        model_filter,
+        company_id
       });
 
       // Get connections
@@ -153,6 +276,7 @@ export function createSyncRouter(db, services) {
         });
 
         preview.model_filter = models;
+        preview.company_id = company_id || null;
         res.json(preview);
         return;
       }
@@ -181,12 +305,14 @@ export function createSyncRouter(db, services) {
       const preview = await syncEngine.generatePreview(
         sourceClient,
         targetClient,
-        model_filter
+        model_filter,
+        company_id
       );
 
       preview.model_filter = Array.isArray(model_filter) && model_filter.length > 0
         ? model_filter
         : null;
+      preview.company_id = company_id || null;
 
       if (process.env.NODE_ENV !== 'test') {
         const previewRun = syncRunModel.create({
@@ -227,10 +353,11 @@ export function createSyncRouter(db, services) {
             );
 
             if (existing) {
+              conflict.conflict_id = existing.id;
               continue;
             }
 
-            syncConflictModel.create({
+            const created = syncConflictModel.create({
               sync_run_id: previewRun.id,
               odoo_model: modelComparison.model,
               record_id: conflict.record_id,
@@ -243,6 +370,7 @@ export function createSyncRouter(db, services) {
               source_write_date: conflict.source_write_date,
               target_write_date: conflict.target_write_date
             });
+            conflict.conflict_id = created?.id || null;
           }
         }
       }
@@ -362,6 +490,7 @@ export function createSyncRouter(db, services) {
       source_db_id,
       target_db_id,
       model_filter,
+      company_id,
       simulate_error
     } = req.body;
 
@@ -502,6 +631,7 @@ export function createSyncRouter(db, services) {
           sourceClient,
           targetClient,
           modelFilter: model_filter,
+          companyId: company_id,
           dataPreserver,
           mock: mockMode,
           syncRunId: syncRun.id,

@@ -166,10 +166,11 @@ export class ConflictResolver {
     const shouldKeepLocal = chosenVersion === 'local';
     const connectionId = shouldKeepLocal ? conflict.target_db_id : conflict.source_db_id;
     const updateValues = shouldKeepLocal ? conflict.source_values : conflict.target_values;
+    const filteredUpdateValues = this.filterUnsafeFields(conflict.odoo_model, updateValues);
 
     const activeClient = client || await this.createClient(connectionId);
     try {
-      const prepared = this.dataPreserver.prepareUpdateValues(updateValues);
+      const prepared = this.dataPreserver.prepareUpdateValues(filteredUpdateValues);
       const filtered = await this.syncEngine.filterWritableFields(
         conflict.odoo_model,
         prepared,
@@ -193,6 +194,20 @@ export class ConflictResolver {
         await activeClient.close();
       }
     }
+  }
+
+  filterUnsafeFields(model, values) {
+    if (!values || typeof values !== 'object') {
+      return values;
+    }
+
+    if (model === 'res.company' && 'parent_id' in values) {
+      const copy = { ...values };
+      delete copy.parent_id;
+      return copy;
+    }
+
+    return values;
   }
 
   async createClient(connectionId) {

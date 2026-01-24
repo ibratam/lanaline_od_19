@@ -3,6 +3,7 @@ import logger from '../utils/logger.js';
 export class SyncSchedule {
   constructor(db) {
     this.db = db;
+    this.ensureCompanyColumn();
   }
 
   /**
@@ -20,14 +21,15 @@ export class SyncSchedule {
         notification_email = null,
         notify_on_error = 1,
         notify_on_success = 0,
-        model_filter = null
+        model_filter = null,
+        company_id = null
       } = data;
 
       const stmt = this.db.prepare(`
         INSERT INTO sync_schedules (
           source_db_id, target_db_id, name, description, cron_expression,
-          timezone, notification_email, notify_on_error, notify_on_success, model_filter
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          timezone, notification_email, notify_on_error, notify_on_success, model_filter, company_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const result = stmt.run(
@@ -40,7 +42,8 @@ export class SyncSchedule {
         notification_email,
         notify_on_error,
         notify_on_success,
-        model_filter ? JSON.stringify(model_filter) : null
+        model_filter ? JSON.stringify(model_filter) : null,
+        company_id
       );
 
       logger.info(`Created sync schedule: ${name} (ID: ${result.lastInsertRowid})`);
@@ -129,6 +132,7 @@ export class SyncSchedule {
         notify_on_error,
         notify_on_success,
         model_filter,
+        company_id,
         last_executed_at,
         next_execution_at
       } = data;
@@ -172,6 +176,10 @@ export class SyncSchedule {
         updates.push('model_filter = ?');
         params.push(model_filter ? JSON.stringify(model_filter) : null);
       }
+      if (company_id !== undefined) {
+        updates.push('company_id = ?');
+        params.push(company_id);
+      }
       if (last_executed_at !== undefined) {
         updates.push('last_executed_at = ?');
         params.push(last_executed_at);
@@ -211,6 +219,19 @@ export class SyncSchedule {
       return true;
     } catch (error) {
       logger.error(`Error deleting sync schedule ${id}:`, error);
+      throw error;
+    }
+  }
+
+  ensureCompanyColumn() {
+    try {
+      const columns = this.db.prepare('PRAGMA table_info(sync_schedules)').all();
+      const columnNames = new Set(columns.map(col => col.name));
+      if (!columnNames.has('company_id')) {
+        this.db.exec('ALTER TABLE sync_schedules ADD COLUMN company_id INTEGER');
+      }
+    } catch (error) {
+      logger.error('Error ensuring sync schedule company_id column:', error);
       throw error;
     }
   }

@@ -109,6 +109,7 @@ CREATE TABLE IF NOT EXISTS sync_schedules (
   notify_on_error INTEGER NOT NULL DEFAULT 1,
   notify_on_success INTEGER NOT NULL DEFAULT 0,
   model_filter TEXT, -- JSON array if filtering models
+  company_id INTEGER, -- Optional company filter
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (source_db_id) REFERENCES database_connections(id),
