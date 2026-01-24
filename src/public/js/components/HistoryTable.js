@@ -182,6 +182,23 @@ export class HistoryTable {
   }
 
   renderDetail(detail) {
+    const hasErrors = Array.isArray(detail.errors) && detail.errors.length > 0;
+    const errorMessage = detail.error_message || null;
+    const errorMeta = [
+      detail.last_error_category ? `Category: ${detail.last_error_category}` : null,
+      detail.last_error_code ? `Code: ${detail.last_error_code}` : null,
+      Number.isFinite(detail.error_count) ? `Count: ${detail.error_count}` : null
+    ].filter(Boolean).join(' | ');
+
+    const errorSummary = (errorMessage || errorMeta)
+      ? `
+        <div class="failure-details">
+          ${errorMessage ? `<div class="failure-message">${this.escapeHtml(errorMessage)}</div>` : ''}
+          ${errorMeta ? `<div class="text-muted">${this.escapeHtml(errorMeta)}</div>` : ''}
+        </div>
+      `
+      : '<p class="text-muted">No failure summary recorded.</p>';
+
     return `
       <h3>Sync Run #${detail.id}</h3>
       <p><strong>Status:</strong> ${this.escapeHtml(detail.status)}</p>
@@ -190,6 +207,9 @@ export class HistoryTable {
       <p><strong>Completed:</strong> ${detail.completed_at ? new Date(detail.completed_at).toLocaleString() : '—'}</p>
       <p><strong>Records:</strong> Created ${detail.total_records_created || 0}, Updated ${detail.total_records_updated || 0}, Deleted ${detail.total_records_deleted || 0}</p>
 
+      <h4>Failure Summary</h4>
+      ${errorSummary}
+
       <h4>Operations</h4>
       <pre>${this.escapeHtml(JSON.stringify(detail.operations || [], null, 2))}</pre>
 
@@ -197,7 +217,9 @@ export class HistoryTable {
       <pre>${this.escapeHtml(JSON.stringify(detail.conflicts || [], null, 2))}</pre>
 
       <h4>Errors</h4>
-      <pre>${this.escapeHtml(JSON.stringify(detail.errors || [], null, 2))}</pre>
+      ${hasErrors
+        ? `<pre>${this.escapeHtml(JSON.stringify(detail.errors || [], null, 2))}</pre>`
+        : '<p class="text-muted">No errors recorded.</p>'}
     `;
   }
 

@@ -137,6 +137,55 @@ export function createConflictsRouter(db, services = {}) {
     });
   }));
 
+  router.post('/clear', asyncHandler(async (req, res) => {
+    const { state, model, models } = req.body || {};
+    const modelList = Array.isArray(models)
+      ? models.filter(Boolean)
+      : (models ? String(models).split(',').map(entry => entry.trim()).filter(Boolean) : []);
+
+    if (state && !STATE_MAP.has(state)) {
+      throw new ValidationError('state must be detected, resolved, applied, failed_resolution, or needs_manual_review');
+    }
+
+    const params = [];
+    let sql = 'SELECT id FROM sync_conflicts WHERE 1=1';
+
+    if (modelList.length > 0) {
+      const placeholders = modelList.map(() => '?').join(', ');
+      sql += ` AND odoo_model IN (${placeholders})`;
+      params.push(...modelList);
+    } else if (model) {
+      sql += ' AND odoo_model = ?';
+      params.push(model);
+    }
+
+    if (state) {
+      sql += ' AND state = ?';
+      params.push(state);
+    }
+
+    const ids = database.prepare(sql).all(...params).map(row => row.id);
+    if (ids.length === 0) {
+      res.json({ deleted_count: 0 });
+      return;
+    }
+
+    const idPlaceholders = ids.map(() => '?').join(', ');
+
+    try {
+      database.exec('BEGIN');
+      database.prepare(`DELETE FROM retry_history WHERE conflict_id IN (${idPlaceholders})`).run(...ids);
+      database.prepare(`DELETE FROM conflict_resolutions WHERE conflict_id IN (${idPlaceholders})`).run(...ids);
+      database.prepare(`DELETE FROM conflict_locks WHERE conflict_id IN (${idPlaceholders})`).run(...ids);
+      const result = database.prepare(`DELETE FROM sync_conflicts WHERE id IN (${idPlaceholders})`).run(...ids);
+      database.exec('COMMIT');
+      res.json({ deleted_count: result.changes || 0 });
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  }));
+
   router.get('/:id', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {

@@ -218,6 +218,10 @@ class APIClient {
     return this.get(`/conflicts/${id}`);
   }
 
+  async clearConflicts(filters = {}) {
+    return this.post('/conflicts/clear', filters);
+  }
+
   async lockConflict(id, data) {
     return this.post(`/conflicts/${id}/lock`, data);
   }

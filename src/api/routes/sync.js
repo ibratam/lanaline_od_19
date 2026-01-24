@@ -22,6 +22,26 @@ const syncState = {
   lastCompleted: null
 };
 
+function parseFilterValue(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === 'boolean' || typeof value === 'number') {
+    return value;
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return null;
+  }
+  const lowered = trimmed.toLowerCase();
+  if (lowered === 'true') return true;
+  if (lowered === 'false') return false;
+  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+  return trimmed;
+}
+
 function updateSyncState(update) {
   if (!syncState.current) {
     syncState.current = {};
@@ -211,8 +231,10 @@ export function createSyncRouter(db, services) {
       source_db_id,
       target_db_id,
       model_filter,
-      company_id
+      company_id,
+      sample_flag_value
     } = req.body;
+    const sampleFlagValue = parseFilterValue(sample_flag_value);
 
     // Validate inputs
     if (!source_db_id || !target_db_id) {
@@ -228,7 +250,8 @@ export function createSyncRouter(db, services) {
         source_db_id,
         target_db_id,
         model_filter,
-        company_id
+        company_id,
+        sample_flag_value: sampleFlagValue
       });
 
       // Get connections
@@ -250,7 +273,7 @@ export function createSyncRouter(db, services) {
           throw new SystemError('Database connection failed');
         }
 
-        const syncEngine = new SyncEngine({});
+        const syncEngine = new SyncEngine({}, { sampleFlagValue });
         const models = Array.isArray(model_filter) && model_filter.length > 0
           ? model_filter
           : ['res.partner'];
@@ -301,7 +324,7 @@ export function createSyncRouter(db, services) {
       await targetClient.authenticate();
 
       // Generate preview
-      const syncEngine = new SyncEngine(sourceClient);
+      const syncEngine = new SyncEngine(sourceClient, { sampleFlagValue });
       const preview = await syncEngine.generatePreview(
         sourceClient,
         targetClient,
@@ -491,8 +514,10 @@ export function createSyncRouter(db, services) {
       target_db_id,
       model_filter,
       company_id,
-      simulate_error
+      simulate_error,
+      sample_flag_value
     } = req.body;
+    const sampleFlagValue = parseFilterValue(sample_flag_value);
 
     if (!source_db_id || !target_db_id) {
       throw new ValidationError('source_db_id and target_db_id are required');
@@ -558,7 +583,7 @@ export function createSyncRouter(db, services) {
       targetConnection.password
     );
 
-    const syncEngine = new SyncEngine(sourceClient);
+    const syncEngine = new SyncEngine(sourceClient, { sampleFlagValue });
     const mockMode = process.env.NODE_ENV === 'test';
     const startedAt = Date.now();
 

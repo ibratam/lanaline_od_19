@@ -109,9 +109,12 @@ export class SyncHistoryPanel {
       onRefresh();
     });
 
-    document.querySelectorAll('.history-detail').forEach(button => {
+    document.querySelectorAll('button.history-detail').forEach(button => {
       button.addEventListener('click', async () => {
         const id = button.dataset.id;
+        if (!id) {
+          return;
+        }
         const detail = await apiClient.get(`/history/${id}/changes`);
         const container = document.getElementById('history-detail');
         if (container) {

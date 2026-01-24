@@ -168,6 +168,10 @@ class OdooSyncApp {
           <select id="preview-modules" multiple size="6"></select>
         </div>
         <div class="form-group">
+          <label for="preview-sample-flag">Sample Flag (x_studio_sample_flag)</label>
+          <input type="text" id="preview-sample-flag" placeholder="true / false / value">
+        </div>
+        <div class="form-group">
           <button class="btn btn-primary" id="preview-btn">Generate Preview</button>
         </div>
       </div>
@@ -194,6 +198,7 @@ class OdooSyncApp {
       const modelFilter = this.previewModelSelector.getSelectedModels('preview-models');
       const moduleFilter = this.getSelectedOptions('preview-modules');
       const companyId = Number(document.getElementById('preview-company')?.value) || null;
+      const sampleFlagValue = document.getElementById('preview-sample-flag')?.value?.trim() || null;
 
       if (!sourceId || !targetId || sourceId === targetId) {
         if (container) {
@@ -203,7 +208,7 @@ class OdooSyncApp {
       }
 
       const mergedFilter = this.mergeFilters(modelFilter, moduleFilter);
-      const html = await this.previewDisplay.load(sourceId, targetId, mergedFilter, companyId);
+      const html = await this.previewDisplay.load(sourceId, targetId, mergedFilter, companyId, sampleFlagValue);
       if (container) {
         container.innerHTML = html;
       }
@@ -242,6 +247,10 @@ class OdooSyncApp {
           <select id="sync-modules" multiple size="6"></select>
         </div>
         <div class="form-group">
+          <label for="sync-sample-flag">Sample Flag (x_studio_sample_flag)</label>
+          <input type="text" id="sync-sample-flag" placeholder="true / false / value">
+        </div>
+        <div class="form-group">
           <button class="btn btn-primary" id="sync-start-btn">Start Sync</button>
           <button class="btn btn-secondary" id="sync-rollback-btn">Rollback</button>
         </div>
@@ -268,6 +277,7 @@ class OdooSyncApp {
       const modelFilter = this.syncModelSelector.getSelectedModels('sync-models');
       const moduleFilter = this.getSelectedOptions('sync-modules');
       const companyId = Number(document.getElementById('sync-company')?.value) || null;
+      const sampleFlagValue = document.getElementById('sync-sample-flag')?.value?.trim() || null;
 
       if (!sourceId || !targetId || sourceId === targetId) {
         this.showError('Select two different connections to start sync.');
@@ -280,7 +290,8 @@ class OdooSyncApp {
           source_db_id: sourceId,
           target_db_id: targetId,
           model_filter: mergedFilter,
-          company_id: companyId
+          company_id: companyId,
+          sample_flag_value: sampleFlagValue
         });
         this.lastSyncRunId = response.sync_run_id;
         this.progressMonitor.start((status) => {
@@ -432,6 +443,41 @@ class OdooSyncApp {
             await this.loadConflictsTab();
           }
         );
+      },
+      async () => {
+        const filters = [];
+        if (this.conflictsList.stateFilter) {
+          filters.push(`state=${this.conflictsList.stateFilter}`);
+        }
+        if (this.conflictsList.modelFilter) {
+          filters.push(`model=${this.conflictsList.modelFilter}`);
+        }
+        if (this.conflictsList.modelFilters.length > 0) {
+          filters.push(`models=${this.conflictsList.modelFilters.length}`);
+        }
+        const filterLabel = filters.length > 0 ? ` (${filters.join(', ')})` : '';
+        if (!window.confirm(`Clear conflicts${filterLabel}? This removes them from the database.`)) {
+          return;
+        }
+        try {
+          const result = await apiClient.clearConflicts({
+            state: this.conflictsList.stateFilter || undefined,
+            model: this.conflictsList.modelFilter || undefined,
+            models: this.conflictsList.modelFilters.length > 0 ? this.conflictsList.modelFilters : undefined
+          });
+          this.notificationPanel.show({
+            type: 'success',
+            message: `Cleared ${result.deleted_count || 0} conflicts.`
+          });
+          await this.loadConflictsTab();
+        } catch (error) {
+          this.notificationPanel.show({
+            type: 'error',
+            message: error.message,
+            errorCode: 'CF-CLEAR'
+          });
+          this.showError(error.message);
+        }
       }
     );
 

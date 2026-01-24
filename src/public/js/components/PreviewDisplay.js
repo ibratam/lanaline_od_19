@@ -13,7 +13,7 @@ export class PreviewDisplay {
   /**
    * Load and display preview
    */
-  async load(sourceDbId, targetDbId, modelFilter = null, companyId = null) {
+  async load(sourceDbId, targetDbId, modelFilter = null, companyId = null, sampleFlagValue = null) {
     try {
       this.showMessage('Generating preview...', 'info');
 
@@ -21,7 +21,8 @@ export class PreviewDisplay {
         source_db_id: sourceDbId,
         target_db_id: targetDbId,
         model_filter: modelFilter,
-        company_id: companyId
+        company_id: companyId,
+        sample_flag_value: sampleFlagValue
       });
 
       this.preview = result;

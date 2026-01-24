@@ -108,6 +108,9 @@ export class ConflictsList {
           <div class="form-group">
             <button class="btn btn-secondary" id="conflicts-bulk-open">Bulk Resolve</button>
           </div>
+          <div class="form-group">
+            <button class="btn btn-secondary" id="conflicts-clear">Clear Conflicts</button>
+          </div>
         </div>
       </div>
 
@@ -132,7 +135,7 @@ export class ConflictsList {
     `;
   }
 
-  attachHandlers(onRefresh, onSelectConflict) {
+  attachHandlers(onRefresh, onSelectConflict, onClear) {
     document.getElementById('conflicts-source')?.addEventListener('change', async () => {
       const sourceId = Number(document.getElementById('conflicts-source')?.value) || null;
       if (sourceId) {
@@ -168,6 +171,12 @@ export class ConflictsList {
       if (this.nextCursor) {
         this.cursor = this.nextCursor;
         onRefresh();
+      }
+    });
+
+    document.getElementById('conflicts-clear')?.addEventListener('click', () => {
+      if (onClear) {
+        onClear();
       }
     });
 

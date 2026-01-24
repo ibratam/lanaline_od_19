@@ -2,6 +2,25 @@ import logger from '../utils/logger.js';
 import { ConflictDetector } from './ConflictDetector.js';
 import SyncOperationLogger from './SyncOperationLogger.js';
 
+const DEFAULT_EXCLUDED_MODELS = new Set([
+  'stock.forecasted_product_product',
+  'stock.forecasted_product_template',
+  'report.stock.report_stock_rule',
+  'stock.warn.insufficient.qty',
+  'stock.replenish.mixin',
+  'report.stock.report_reception',
+  'pos.bus.mixin',
+  'pos.load.mixin',
+  'report.point_of_sale.report_saledetails',
+  'report.point_of_sale.report_invoice',
+  'ir.http',
+  'pos.payment.method'
+]);
+const DEFAULT_SAMPLE_FLAG_MODELS = new Set([
+  'pos.order',
+  'account.move'
+]);
+
 /**
  * Sync Engine Service
  * Core synchronization logic for comparing and syncing records
@@ -12,7 +31,15 @@ export class SyncEngine {
     this.conflictDetector = new ConflictDetector();
     this.modelFieldCache = new Map();
     this.modelFieldNames = new Map();
-    this.disableDeletes = options.disableDeletes ?? true;
+    // Hard-disable deletes to prevent destructive operations.
+    this.disableDeletes = true;
+    const extraExcluded = Array.isArray(options.excludedModels) ? options.excludedModels : [];
+    this.excludedModels = new Set([...DEFAULT_EXCLUDED_MODELS, ...extraExcluded]);
+    this.sampleFlagValue = options.sampleFlagValue ?? null;
+    const sampleFlagModels = Array.isArray(options.sampleFlagModels)
+      ? options.sampleFlagModels
+      : Array.from(DEFAULT_SAMPLE_FLAG_MODELS);
+    this.sampleFlagModels = new Set(sampleFlagModels);
   }
 
   /**
@@ -445,8 +472,12 @@ export class SyncEngine {
         const models = Array.from(allModelNames).filter(name => (
           targetModelNames ? targetModelNames.has(name) : true
         ));
-        logger.info(`Models to sync: ${models.length}`);
-        return models;
+        const { models: filtered, excluded } = this.filterExcludedModels(models);
+        if (excluded.length > 0) {
+          logger.info(`Excluded models: ${excluded.length}`);
+        }
+        logger.info(`Models to sync: ${filtered.length}`);
+        return filtered;
       }
 
       const { models: modelNames, modules } = this.parseModelFilter(modelFilter);
@@ -465,9 +496,13 @@ export class SyncEngine {
       const models = Array.from(selectedModels).filter(name => (
         allModelNames.has(name) && (targetModelNames ? targetModelNames.has(name) : true)
       ));
+      const { models: filtered, excluded } = this.filterExcludedModels(models);
+      if (excluded.length > 0) {
+        logger.info(`Excluded models: ${excluded.length}`);
+      }
 
-      logger.info(`Models to sync: ${models.length}`);
-      return models;
+      logger.info(`Models to sync: ${filtered.length}`);
+      return filtered;
     } catch (error) {
       logger.error('Error getting models:', error);
       throw error;
@@ -496,10 +531,12 @@ export class SyncEngine {
       const models = Array.from(sourceModelNames).filter(name => (
         targetModelNames ? targetModelNames.has(name) : true
       ));
+      const { models: filtered, excluded } = this.filterExcludedModels(models);
       return {
-        models,
+        models: filtered,
         missing_on_source: [],
-        missing_on_target: []
+        missing_on_target: [],
+        excluded_models: excluded
       };
     }
 
@@ -522,19 +559,37 @@ export class SyncEngine {
     }
 
     const desiredList = Array.from(desiredModels);
-    const missingOnSource = desiredList.filter(name => !sourceModelNames.has(name));
+    const { models: filteredDesired, excluded: excludedModels } = this.filterExcludedModels(desiredList);
+    const missingOnSource = filteredDesired.filter(name => !sourceModelNames.has(name));
     const missingOnTarget = targetModelNames
-      ? desiredList.filter(name => !targetModelNames.has(name))
+      ? filteredDesired.filter(name => !targetModelNames.has(name))
       : [];
-    const models = desiredList.filter(name => (
+    const models = filteredDesired.filter(name => (
       sourceModelNames.has(name) && (targetModelNames ? targetModelNames.has(name) : true)
     ));
 
     return {
       models,
       missing_on_source: missingOnSource,
-      missing_on_target: missingOnTarget
+      missing_on_target: missingOnTarget,
+      excluded_models: excludedModels
     };
+  }
+
+  isExcludedModel(name) {
+    return this.excludedModels.has(name);
+  }
+
+  filterExcludedModels(models) {
+    const excluded = [];
+    const filtered = models.filter(model => {
+      const isExcluded = this.isExcludedModel(model);
+      if (isExcluded) {
+        excluded.push(model);
+      }
+      return !isExcluded;
+    });
+    return { models: filtered, excluded };
   }
 
   parseModelFilter(modelFilter) {
@@ -573,8 +628,8 @@ export class SyncEngine {
     try {
       logger.debug(`Comparing model: ${model}`);
 
-      const sourceDomain = await this.getCompanyDomain(sourceClient, model, companyId);
-      const targetDomain = await this.getCompanyDomain(targetClient, model, companyId);
+      const sourceDomain = await this.getModelDomain(sourceClient, model, companyId);
+      const targetDomain = await this.getModelDomain(targetClient, model, companyId);
 
       // Get all records from source
       const sourceRecords = await sourceClient.search(model, sourceDomain, 0, 0);
@@ -1019,22 +1074,50 @@ export class SyncEngine {
     return names;
   }
 
-  async getCompanyDomain(client, model, companyId) {
-    if (!companyId || !client) {
+  async getModelDomain(client, model, companyId) {
+    if (!client) {
       return [];
     }
 
+    const domain = [];
     try {
       const fields = await client.getModelFields(model);
       const fieldNames = new Set(Object.keys(fields || {}));
-      if (fieldNames.has('company_id')) {
-        return [['company_id', '=', companyId]];
+      if (companyId && fieldNames.has('company_id')) {
+        domain.push(['company_id', '=', companyId]);
+      }
+      if (this.sampleFlagModels.has(model)
+        && fieldNames.has('x_studio_sample_flag')
+        && this.sampleFlagValue !== null
+        && this.sampleFlagValue !== undefined
+      ) {
+        domain.push(['x_studio_sample_flag', '=', this.normalizeSampleFlagValue(this.sampleFlagValue)]);
       }
     } catch (error) {
-      logger.warn(`Failed to detect company filter for ${model}: ${error.message}`);
+      logger.warn(`Failed to detect domain filters for ${model}: ${error.message}`);
     }
 
-    return [];
+    return domain;
+  }
+
+  normalizeSampleFlagValue(value) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+    if (typeof value === 'boolean' || typeof value === 'number') {
+      return value;
+    }
+    const trimmed = String(value).trim();
+    if (!trimmed) {
+      return null;
+    }
+    const lowered = trimmed.toLowerCase();
+    if (lowered === 'true') return true;
+    if (lowered === 'false') return false;
+    if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+    return trimmed;
   }
 
   extractCompanyRef(companyValue, record) {
