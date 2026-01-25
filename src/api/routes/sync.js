@@ -7,7 +7,7 @@ import {
   asyncHandler
 } from '../middleware/errorHandler.js';
 import logger from '../../utils/logger.js';
-import SyncEngine from '../../services/SyncEngine.js';
+import SyncEngine, { DEFAULT_ALLOWED_MODELS } from '../../services/SyncEngine.js';
 import OdooClient from '../../services/OdooClient.js';
 import HistoryLogger from '../../services/HistoryLogger.js';
 import DataPreserver from '../../services/DataPreserver.js';
@@ -64,6 +64,21 @@ export function createSyncRouter(db, services) {
   const database = db.getDB();
 
   const MIN_RETRY_WAIT_MS = process.env.NODE_ENV === 'test' ? 0 : 5000;
+  const allowedModels = new Set(DEFAULT_ALLOWED_MODELS);
+
+  const getLastCompletedAt = (sourceDbId, targetDbId) => {
+    const row = database.prepare(`
+      SELECT completed_at
+      FROM sync_runs
+      WHERE source_db_id = ?
+        AND target_db_id = ?
+        AND status = 'completed'
+        AND preview_only = 0
+      ORDER BY completed_at DESC
+      LIMIT 1
+    `).get(sourceDbId, targetDbId);
+    return row?.completed_at || null;
+  };
 
   /**
    * GET /api/sync/models
@@ -90,11 +105,13 @@ export function createSyncRouter(db, services) {
     try {
       await sourceClient.authenticate();
       const models = await sourceClient.getModels();
-      const normalized = models.map(model => ({
-        id: model.id,
-        name: model.name,
-        model: model.model
-      }));
+      const normalized = models
+        .filter(model => allowedModels.has(model.model))
+        .map(model => ({
+          id: model.id,
+          name: model.name,
+          model: model.model
+        }));
       res.json({ models: normalized });
     } finally {
       await sourceClient.close();
@@ -110,30 +127,7 @@ export function createSyncRouter(db, services) {
     if (!Number.isInteger(sourceDbId) || sourceDbId <= 0) {
       throw new ValidationError('source_db_id is required');
     }
-
-    const sourceConnection = await configManager.getConnectionWithPassword(sourceDbId);
-    if (!sourceConnection) {
-      throw new NotFoundError(`Source database ${sourceDbId} not found`);
-    }
-
-    const sourceClient = new OdooClient(
-      sourceConnection.url,
-      sourceConnection.database_name,
-      sourceConnection.username,
-      sourceConnection.password
-    );
-
-    try {
-      await sourceClient.authenticate();
-      const modules = await sourceClient.getModules();
-      const normalized = modules.map(module => ({
-        name: module.name,
-        description: module.shortdesc || module.name
-      }));
-      res.json({ modules: normalized });
-    } finally {
-      await sourceClient.close();
-    }
+    res.json({ modules: [] });
   }));
 
   /**
@@ -157,34 +151,7 @@ export function createSyncRouter(db, services) {
       res.json({ models: [] });
       return;
     }
-
-    const sourceConnection = await configManager.getConnectionWithPassword(sourceDbId);
-    if (!sourceConnection) {
-      throw new NotFoundError(`Source database ${sourceDbId} not found`);
-    }
-
-    const sourceClient = new OdooClient(
-      sourceConnection.url,
-      sourceConnection.database_name,
-      sourceConnection.username,
-      sourceConnection.password
-    );
-
-    try {
-      await sourceClient.authenticate();
-      const modelSet = new Set();
-      for (const moduleName of modules) {
-        const moduleModels = await sourceClient.getModelsByModule(moduleName);
-        moduleModels.forEach(item => {
-          if (item?.model) {
-            modelSet.add(item.model);
-          }
-        });
-      }
-      res.json({ models: Array.from(modelSet) });
-    } finally {
-      await sourceClient.close();
-    }
+    res.json({ models: [] });
   }));
 
   /**
@@ -273,7 +240,7 @@ export function createSyncRouter(db, services) {
           throw new SystemError('Database connection failed');
         }
 
-        const syncEngine = new SyncEngine({}, { sampleFlagValue });
+        const syncEngine = new SyncEngine({}, { sampleFlagValue, idMapModel: services.idMapModel });
         const models = Array.isArray(model_filter) && model_filter.length > 0
           ? model_filter
           : ['res.partner'];
@@ -324,7 +291,7 @@ export function createSyncRouter(db, services) {
       await targetClient.authenticate();
 
       // Generate preview
-      const syncEngine = new SyncEngine(sourceClient, { sampleFlagValue });
+      const syncEngine = new SyncEngine(sourceClient, { sampleFlagValue, idMapModel: services.idMapModel });
       const preview = await syncEngine.generatePreview(
         sourceClient,
         targetClient,
@@ -583,7 +550,7 @@ export function createSyncRouter(db, services) {
       targetConnection.password
     );
 
-    const syncEngine = new SyncEngine(sourceClient, { sampleFlagValue });
+    const syncEngine = new SyncEngine(sourceClient, { sampleFlagValue, idMapModel: services.idMapModel });
     const mockMode = process.env.NODE_ENV === 'test';
     const startedAt = Date.now();
 
@@ -660,6 +627,9 @@ export function createSyncRouter(db, services) {
           dataPreserver,
           mock: mockMode,
           syncRunId: syncRun.id,
+          sourceDbId: source_db_id,
+          targetDbId: target_db_id,
+          incrementalSince: getLastCompletedAt(source_db_id, target_db_id),
           progressCallback: (progress) => {
             updateSyncState({
               ...progress
@@ -875,7 +845,7 @@ export function createSyncRouter(db, services) {
       targetConnection.password
     );
 
-    const syncEngine = new SyncEngine(sourceClient);
+    const syncEngine = new SyncEngine(sourceClient, { idMapModel: services.idMapModel });
     const mockMode = process.env.NODE_ENV === 'test';
     const startedAt = Date.now();
 
@@ -893,6 +863,9 @@ export function createSyncRouter(db, services) {
           dataPreserver,
           mock: mockMode,
           syncRunId: syncRun.id,
+          sourceDbId: previousRun.source_db_id,
+          targetDbId: previousRun.target_db_id,
+          incrementalSince: getLastCompletedAt(previousRun.source_db_id, previousRun.target_db_id),
           progressCallback: (progress) => {
             updateSyncState({
               ...progress

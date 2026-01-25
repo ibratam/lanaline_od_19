@@ -209,6 +209,25 @@ CREATE TABLE IF NOT EXISTS data_inconsistencies (
   FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE
 );
 
+-- Sync ID Mapping table
+CREATE TABLE IF NOT EXISTS sync_id_map (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_db_id INTEGER NOT NULL,
+  target_db_id INTEGER NOT NULL,
+  odoo_model TEXT NOT NULL,
+  source_id INTEGER NOT NULL,
+  target_id INTEGER NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (source_db_id, target_db_id, odoo_model, source_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_id_map_source
+  ON sync_id_map(source_db_id, target_db_id, odoo_model, source_id);
+
+CREATE INDEX IF NOT EXISTS idx_sync_id_map_target
+  ON sync_id_map(source_db_id, target_db_id, odoo_model, target_id);
+
 -- Indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_sync_runs_source_target ON sync_runs(source_db_id, target_db_id);
 CREATE INDEX IF NOT EXISTS idx_sync_runs_status ON sync_runs(status);

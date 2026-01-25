@@ -53,6 +53,8 @@ class OdooSyncApp {
     });
     this.activeTab = 'config';
     this.lastSyncRunId = null;
+    this.autoRefreshIntervalId = null;
+    this.autoRefreshRunning = false;
   }
 
   /**
@@ -114,6 +116,7 @@ class OdooSyncApp {
     document.getElementById(tabName)?.classList.remove('hidden');
 
     this.activeTab = tabName;
+    this.refreshTab(tabName);
   }
 
   /**
@@ -164,10 +167,6 @@ class OdooSyncApp {
           </select>
         </div>
         <div class="form-group">
-          <label for="preview-modules">Modules</label>
-          <select id="preview-modules" multiple size="6"></select>
-        </div>
-        <div class="form-group">
           <label for="preview-sample-flag">Sample Flag (x_studio_sample_flag)</label>
           <input type="text" id="preview-sample-flag" placeholder="true / false / value">
         </div>
@@ -181,13 +180,11 @@ class OdooSyncApp {
     this.previewModelSelector.attachHandlers('preview-models');
     await this.loadModelsForSelector('preview-models', 'preview-source', this.previewModelSelector);
     await this.loadCompaniesForSelect('preview-company', 'preview-source');
-    await this.loadModulesForSelect('preview-modules', 'preview-source');
 
     const previewSource = document.getElementById('preview-source');
     previewSource?.addEventListener('change', async () => {
       await this.loadModelsForSelector('preview-models', 'preview-source', this.previewModelSelector);
       await this.loadCompaniesForSelect('preview-company', 'preview-source');
-      await this.loadModulesForSelect('preview-modules', 'preview-source');
     });
 
     const previewButton = document.getElementById('preview-btn');
@@ -196,7 +193,6 @@ class OdooSyncApp {
       const targetId = Number(document.getElementById('preview-target')?.value);
       const container = document.getElementById('preview-container');
       const modelFilter = this.previewModelSelector.getSelectedModels('preview-models');
-      const moduleFilter = this.getSelectedOptions('preview-modules');
       const companyId = Number(document.getElementById('preview-company')?.value) || null;
       const sampleFlagValue = document.getElementById('preview-sample-flag')?.value?.trim() || null;
 
@@ -207,7 +203,7 @@ class OdooSyncApp {
         return;
       }
 
-      const mergedFilter = this.mergeFilters(modelFilter, moduleFilter);
+      const mergedFilter = this.mergeFilters(modelFilter);
       const html = await this.previewDisplay.load(sourceId, targetId, mergedFilter, companyId, sampleFlagValue);
       if (container) {
         container.innerHTML = html;
@@ -243,10 +239,6 @@ class OdooSyncApp {
           </select>
         </div>
         <div class="form-group">
-          <label for="sync-modules">Modules</label>
-          <select id="sync-modules" multiple size="6"></select>
-        </div>
-        <div class="form-group">
           <label for="sync-sample-flag">Sample Flag (x_studio_sample_flag)</label>
           <input type="text" id="sync-sample-flag" placeholder="true / false / value">
         </div>
@@ -261,13 +253,11 @@ class OdooSyncApp {
     this.syncModelSelector.attachHandlers('sync-models');
     await this.loadModelsForSelector('sync-models', 'sync-source', this.syncModelSelector);
     await this.loadCompaniesForSelect('sync-company', 'sync-source');
-    await this.loadModulesForSelect('sync-modules', 'sync-source');
 
     const syncSource = document.getElementById('sync-source');
     syncSource?.addEventListener('change', async () => {
       await this.loadModelsForSelector('sync-models', 'sync-source', this.syncModelSelector);
       await this.loadCompaniesForSelect('sync-company', 'sync-source');
-      await this.loadModulesForSelect('sync-modules', 'sync-source');
     });
 
     const startButton = document.getElementById('sync-start-btn');
@@ -275,7 +265,6 @@ class OdooSyncApp {
       const sourceId = Number(document.getElementById('sync-source')?.value);
       const targetId = Number(document.getElementById('sync-target')?.value);
       const modelFilter = this.syncModelSelector.getSelectedModels('sync-models');
-      const moduleFilter = this.getSelectedOptions('sync-modules');
       const companyId = Number(document.getElementById('sync-company')?.value) || null;
       const sampleFlagValue = document.getElementById('sync-sample-flag')?.value?.trim() || null;
 
@@ -285,7 +274,7 @@ class OdooSyncApp {
       }
 
       try {
-        const mergedFilter = this.mergeFilters(modelFilter, moduleFilter);
+        const mergedFilter = this.mergeFilters(modelFilter);
         const response = await apiClient.executeSync({
           source_db_id: sourceId,
           target_db_id: targetId,
@@ -452,9 +441,6 @@ class OdooSyncApp {
         if (this.conflictsList.modelFilter) {
           filters.push(`model=${this.conflictsList.modelFilter}`);
         }
-        if (this.conflictsList.modelFilters.length > 0) {
-          filters.push(`models=${this.conflictsList.modelFilters.length}`);
-        }
         const filterLabel = filters.length > 0 ? ` (${filters.join(', ')})` : '';
         if (!window.confirm(`Clear conflicts${filterLabel}? This removes them from the database.`)) {
           return;
@@ -462,8 +448,7 @@ class OdooSyncApp {
         try {
           const result = await apiClient.clearConflicts({
             state: this.conflictsList.stateFilter || undefined,
-            model: this.conflictsList.modelFilter || undefined,
-            models: this.conflictsList.modelFilters.length > 0 ? this.conflictsList.modelFilters : undefined
+            model: this.conflictsList.modelFilter || undefined
           });
           this.notificationPanel.show({
             type: 'success',
@@ -556,45 +541,9 @@ class OdooSyncApp {
     }
   }
 
-  async loadModulesForSelect(selectId, sourceSelectId) {
-    const select = document.getElementById(selectId);
-    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
-    if (!select) {
-      return;
-    }
-    if (!sourceId) {
-      select.innerHTML = '';
-      return;
-    }
-
-    select.innerHTML = '';
-    try {
-      const response = await apiClient.getSyncModules(sourceId);
-      const modules = response.modules || [];
-      const options = modules
-        .map(module => `<option value="${module.name}">${this.escapeHtml(module.description || module.name)}</option>`)
-        .join('');
-      select.innerHTML = options;
-    } catch (error) {
-      select.innerHTML = '';
-    }
-  }
-
-  getSelectedOptions(selectId) {
-    const select = document.getElementById(selectId);
-    if (!select) {
-      return [];
-    }
-    return Array.from(select.selectedOptions)
-      .map(option => option.value)
-      .filter(Boolean);
-  }
-
-  mergeFilters(modelFilter, moduleFilter) {
+  mergeFilters(modelFilter) {
     const models = Array.isArray(modelFilter) ? modelFilter : [];
-    const modules = Array.isArray(moduleFilter) ? moduleFilter : [];
-    const combined = [...models, ...modules];
-    return combined.length > 0 ? combined : null;
+    return models.length > 0 ? models : null;
   }
 
   escapeHtml(text) {
@@ -677,6 +626,45 @@ class OdooSyncApp {
     return connections
       .map(connection => `<option value="${connection.id}">${connection.name}</option>`)
       .join('');
+  }
+
+  async refreshTab(tabName) {
+    if (this.autoRefreshRunning) {
+      return;
+    }
+    this.autoRefreshRunning = true;
+    try {
+      switch (tabName) {
+        case 'config':
+          await this.loadConfigTab();
+          break;
+        case 'preview':
+          await this.loadPreviewTab();
+          break;
+        case 'sync':
+          await this.loadSyncTab();
+          break;
+        case 'schedule':
+          await this.loadScheduleTab();
+          break;
+        case 'history':
+          await this.loadHistoryTab();
+          break;
+        case 'conflicts':
+          await this.loadConflictsTab();
+          break;
+        case 'consistency':
+          await this.loadConsistencyTab();
+          break;
+        case 'operations':
+          await this.loadOperationsTab();
+          break;
+        default:
+          break;
+      }
+    } finally {
+      this.autoRefreshRunning = false;
+    }
   }
 }
 

@@ -13,7 +13,6 @@ export class ScheduleEditor {
     this.modelSelector = new ModelSelector();
     this.pendingModelFilter = null;
     this.pendingCompanyId = null;
-    this.pendingModuleFilter = null;
   }
 
   async load() {
@@ -96,13 +95,6 @@ export class ScheduleEditor {
               <select id="schedule-company">
                 <option value="">All companies</option>
               </select>
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label for="schedule-modules">Modules</label>
-              <select id="schedule-modules" multiple size="6"></select>
             </div>
           </div>
 
@@ -217,12 +209,10 @@ export class ScheduleEditor {
     this.modelSelector.attachHandlers('schedule-models');
     await this.loadModelsForSelector('schedule-models', 'schedule-source');
     await this.loadCompaniesForSelect('schedule-company', 'schedule-source');
-    await this.loadModulesForSelect('schedule-modules', 'schedule-source');
 
     scheduleSource?.addEventListener('change', async () => {
       await this.loadModelsForSelector('schedule-models', 'schedule-source');
       await this.loadCompaniesForSelect('schedule-company', 'schedule-source');
-      await this.loadModulesForSelect('schedule-modules', 'schedule-source');
     });
 
     const updateCron = () => {
@@ -256,7 +246,6 @@ export class ScheduleEditor {
       this.editingId = null;
       this.pendingModelFilter = null;
       this.pendingCompanyId = null;
-      this.pendingModuleFilter = null;
       if (onRefresh) onRefresh();
     });
   }
@@ -268,7 +257,6 @@ export class ScheduleEditor {
     this.editingId = id;
     this.pendingModelFilter = this.parseModelFilterValue(schedule.model_filter);
     this.pendingCompanyId = schedule.company_id ?? null;
-    this.pendingModuleFilter = this.pendingModelFilter;
     document.getElementById('schedule-name').value = schedule.name || '';
     document.getElementById('schedule-source').value = schedule.source_db_id;
     document.getElementById('schedule-target').value = schedule.target_db_id;
@@ -279,7 +267,6 @@ export class ScheduleEditor {
     document.getElementById('schedule-notify-success').value = schedule.notify_on_success ? '1' : '0';
     document.getElementById('schedule-company').value = schedule.company_id ? String(schedule.company_id) : '';
     this.applyModelSelection('schedule-models', this.pendingModelFilter);
-    this.applyModuleSelection('schedule-modules', this.pendingModuleFilter);
   }
 
   collectFormValues() {
@@ -292,10 +279,7 @@ export class ScheduleEditor {
       notification_email: document.getElementById('schedule-email').value.trim() || null,
       notify_on_error: Number(document.getElementById('schedule-notify-error').value),
       notify_on_success: Number(document.getElementById('schedule-notify-success').value),
-      model_filter: this.mergeFilters(
-        this.modelSelector.getSelectedModels('schedule-models'),
-        this.getSelectedOptions('schedule-modules')
-      ),
+      model_filter: this.mergeFilters(this.modelSelector.getSelectedModels('schedule-models')),
       company_id: Number(document.getElementById('schedule-company').value) || null
     };
   }
@@ -361,38 +345,6 @@ export class ScheduleEditor {
     searchInput.disabled = checkboxes.length === 0;
   }
 
-  applyModuleSelection(selectId, modelFilter) {
-    const select = document.getElementById(selectId);
-    if (!select) {
-      return;
-    }
-    const modules = [];
-    if (Array.isArray(modelFilter)) {
-      modelFilter.forEach(entry => {
-        if (typeof entry !== 'string') {
-          return;
-        }
-        const trimmed = entry.trim();
-        if (!trimmed) {
-          return;
-        }
-        if (trimmed.startsWith('module:')) {
-          const name = trimmed.slice('module:'.length).trim();
-          if (name) {
-            modules.push(name);
-          }
-        } else if (!trimmed.includes('.')) {
-          modules.push(trimmed);
-        }
-      });
-    }
-
-    const moduleSet = new Set(modules);
-    Array.from(select.options).forEach(option => {
-      option.selected = moduleSet.has(option.value);
-    });
-  }
-
   async loadModelsForSelector(prefix, sourceSelectId) {
     const sourceId = Number(document.getElementById(sourceSelectId)?.value);
     if (!sourceId) {
@@ -412,49 +364,9 @@ export class ScheduleEditor {
     }
   }
 
-  async loadModulesForSelect(selectId, sourceSelectId) {
-    const select = document.getElementById(selectId);
-    const sourceId = Number(document.getElementById(sourceSelectId)?.value);
-    if (!select) {
-      return;
-    }
-    if (!sourceId) {
-      select.innerHTML = '';
-      return;
-    }
-
-    select.innerHTML = '';
-    try {
-      const response = await apiClient.getSyncModules(sourceId);
-      const modules = response.modules || [];
-      const options = modules
-        .map(module => `<option value="${module.name}">${this.escapeHtml(module.description || module.name)}</option>`)
-        .join('');
-      select.innerHTML = options;
-      if (this.pendingModuleFilter) {
-        this.applyModuleSelection(selectId, this.pendingModuleFilter);
-        this.pendingModuleFilter = null;
-      }
-    } catch (error) {
-      select.innerHTML = '';
-    }
-  }
-
-  getSelectedOptions(selectId) {
-    const select = document.getElementById(selectId);
-    if (!select) {
-      return [];
-    }
-    return Array.from(select.selectedOptions)
-      .map(option => option.value)
-      .filter(Boolean);
-  }
-
-  mergeFilters(modelFilter, moduleFilter) {
+  mergeFilters(modelFilter) {
     const models = Array.isArray(modelFilter) ? modelFilter : [];
-    const modules = Array.isArray(moduleFilter) ? moduleFilter : [];
-    const combined = [...models, ...modules];
-    return combined.length > 0 ? combined : null;
+    return models.length > 0 ? models : null;
   }
   async loadCompaniesForSelect(selectId, sourceSelectId) {
     const select = document.getElementById(selectId);

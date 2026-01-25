@@ -98,6 +98,18 @@ export async function initializeDatabase(dbPath = null) {
         FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE CASCADE
       );
 
+      CREATE TABLE IF NOT EXISTS sync_id_map (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source_db_id INTEGER NOT NULL,
+        target_db_id INTEGER NOT NULL,
+        odoo_model TEXT NOT NULL,
+        source_id INTEGER NOT NULL,
+        target_id INTEGER NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (source_db_id, target_db_id, odoo_model, source_id)
+      );
+
       CREATE INDEX IF NOT EXISTS idx_sync_failures_run ON sync_failures(sync_run_id);
       CREATE INDEX IF NOT EXISTS idx_sync_failures_category ON sync_failures(error_category);
       CREATE INDEX IF NOT EXISTS idx_retry_history_run ON retry_history(sync_run_id);
@@ -105,6 +117,10 @@ export async function initializeDatabase(dbPath = null) {
       CREATE INDEX IF NOT EXISTS idx_sync_operation_status_operation ON sync_operation_status(sync_operation_id);
       CREATE INDEX IF NOT EXISTS idx_table_schemas_name ON table_schemas(table_name);
       CREATE INDEX IF NOT EXISTS idx_data_inconsistencies_type ON data_inconsistencies(inconsistency_type);
+      CREATE INDEX IF NOT EXISTS idx_sync_id_map_source
+        ON sync_id_map(source_db_id, target_db_id, odoo_model, source_id);
+      CREATE INDEX IF NOT EXISTS idx_sync_id_map_target
+        ON sync_id_map(source_db_id, target_db_id, odoo_model, target_id);
     `);
 
     const dataInconsistencyColumns = sqlite.prepare("PRAGMA table_info('data_inconsistencies')").all();

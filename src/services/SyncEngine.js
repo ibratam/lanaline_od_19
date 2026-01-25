@@ -20,6 +20,36 @@ const DEFAULT_SAMPLE_FLAG_MODELS = new Set([
   'pos.order',
   'account.move'
 ]);
+export const DEFAULT_ALLOWED_MODELS = new Set([
+  'res.partner.title',
+  'res.partner.industry',
+  'res.partner.category',
+  'res.country',
+  'res.country.state',
+  'pos.config',
+  'pos.session',
+  'pos.order',
+  'sale.order',
+  'res.partner',
+  'res.partner.bank',
+  'product.product',
+  'product.template'
+]);
+const DEFAULT_MODEL_ORDER = [
+  'res.partner.title',
+  'res.partner.industry',
+  'res.partner.category',
+  'res.country',
+  'res.country.state',
+  'res.partner',
+  'res.partner.bank',
+  'product.template',
+  'product.product',
+  'pos.config',
+  'pos.session',
+  'pos.order',
+  'sale.order'
+];
 
 /**
  * Sync Engine Service
@@ -40,6 +70,14 @@ export class SyncEngine {
       ? options.sampleFlagModels
       : Array.from(DEFAULT_SAMPLE_FLAG_MODELS);
     this.sampleFlagModels = new Set(sampleFlagModels);
+    const allowedModels = Array.isArray(options.allowedModels)
+      ? options.allowedModels
+      : Array.from(DEFAULT_ALLOWED_MODELS);
+    this.allowedModels = new Set(allowedModels);
+    this.modelOrder = Array.isArray(options.modelOrder) && options.modelOrder.length > 0
+      ? options.modelOrder
+      : DEFAULT_MODEL_ORDER;
+    this.idMapModel = options.idMapModel || null;
   }
 
   /**
@@ -77,7 +115,7 @@ export class SyncEngine {
             sourceClient,
             targetClient,
             model,
-            companyId
+            { companyId }
           );
 
           preview.models.push(modelComparison);
@@ -135,7 +173,10 @@ export class SyncEngine {
       mock = process.env.NODE_ENV === 'test',
       operationLogger = new SyncOperationLogger(),
       syncRunId = null,
-      companyId = null
+      companyId = null,
+      sourceDbId = null,
+      targetDbId = null,
+      incrementalSince = null
     } = options || {};
 
     const startedAt = Date.now();
@@ -153,6 +194,8 @@ export class SyncEngine {
     let totalUpdated = 0;
     let totalDeleted = 0;
 
+    const mappingContext = this.getMappingContext(sourceDbId, targetDbId);
+    const incrementalCutoff = this.formatOdooDatetime(incrementalSince);
     const models = mock
       ? (Array.isArray(modelFilter) && modelFilter.length > 0 ? modelFilter : ['res.partner'])
       : await this.getModelsToSync(sourceClient, targetClient, modelFilter);
@@ -185,7 +228,12 @@ export class SyncEngine {
       try {
         comparison = mock
           ? this.buildMockComparison(model)
-          : await this.compareModel(sourceClient, targetClient, model, companyId);
+          : await this.compareModel(sourceClient, targetClient, model, {
+            companyId,
+            mappingContext,
+            incrementalSince: incrementalCutoff,
+            writeMappings: true
+          });
         operationLogger.endPhase(compareOpId, 'compare');
         operationLogger.transitionState(compareOpId, 'running', 'completed');
         operationLogger.completeOperation(compareOpId, {
@@ -226,15 +274,18 @@ export class SyncEngine {
       let createCount = 0;
       let createDuration = 0;
       let createEntry = null;
+      let dependencySync = null;
       try {
         const createStart = Date.now();
-        const dependencySync = {
+        dependencySync = {
           sourceClient,
           targetClient,
           dataPreserver,
           rollbackOperations,
           mock,
           companyId,
+          mappingContext,
+          incrementalSince: incrementalCutoff,
           attemptedModels: new Set(),
           inProgress: new Set()
         };
@@ -296,7 +347,8 @@ export class SyncEngine {
             targetClient,
             dataPreserver,
             rollbackOperations,
-            mock
+            mock,
+            dependencySync
           );
           updateDuration = Date.now() - updateStart;
           operationLogger.endPhase(updateOpId, 'update', { record_count: updateCount });
@@ -472,7 +524,9 @@ export class SyncEngine {
         const models = Array.from(allModelNames).filter(name => (
           targetModelNames ? targetModelNames.has(name) : true
         ));
-        const { models: filtered, excluded } = this.filterExcludedModels(models);
+        const { models: allowed } = this.filterAllowedModels(models);
+        const ordered = this.orderModels(allowed);
+        const { models: filtered, excluded } = this.filterExcludedModels(ordered);
         if (excluded.length > 0) {
           logger.info(`Excluded models: ${excluded.length}`);
         }
@@ -496,7 +550,9 @@ export class SyncEngine {
       const models = Array.from(selectedModels).filter(name => (
         allModelNames.has(name) && (targetModelNames ? targetModelNames.has(name) : true)
       ));
-      const { models: filtered, excluded } = this.filterExcludedModels(models);
+      const { models: allowed } = this.filterAllowedModels(models);
+      const ordered = this.orderModels(allowed);
+      const { models: filtered, excluded } = this.filterExcludedModels(ordered);
       if (excluded.length > 0) {
         logger.info(`Excluded models: ${excluded.length}`);
       }
@@ -531,7 +587,9 @@ export class SyncEngine {
       const models = Array.from(sourceModelNames).filter(name => (
         targetModelNames ? targetModelNames.has(name) : true
       ));
-      const { models: filtered, excluded } = this.filterExcludedModels(models);
+      const { models: allowed } = this.filterAllowedModels(models);
+      const ordered = this.orderModels(allowed);
+      const { models: filtered, excluded } = this.filterExcludedModels(ordered);
       return {
         models: filtered,
         missing_on_source: [],
@@ -559,7 +617,9 @@ export class SyncEngine {
     }
 
     const desiredList = Array.from(desiredModels);
-    const { models: filteredDesired, excluded: excludedModels } = this.filterExcludedModels(desiredList);
+    const { models: allowedDesired } = this.filterAllowedModels(desiredList);
+    const ordered = this.orderModels(allowedDesired);
+    const { models: filteredDesired, excluded: excludedModels } = this.filterExcludedModels(ordered);
     const missingOnSource = filteredDesired.filter(name => !sourceModelNames.has(name));
     const missingOnTarget = targetModelNames
       ? filteredDesired.filter(name => !targetModelNames.has(name))
@@ -590,6 +650,22 @@ export class SyncEngine {
       return !isExcluded;
     });
     return { models: filtered, excluded };
+  }
+
+  filterAllowedModels(models) {
+    const filtered = models.filter(model => this.allowedModels.has(model));
+    return { models: filtered };
+  }
+
+  orderModels(models) {
+    const orderIndex = new Map(this.modelOrder.map((name, idx) => [name, idx]));
+    const withIndex = models.map((name, idx) => ({
+      name,
+      priority: orderIndex.has(name) ? orderIndex.get(name) : Number.MAX_SAFE_INTEGER,
+      idx
+    }));
+    withIndex.sort((a, b) => a.priority - b.priority || a.idx - b.idx);
+    return withIndex.map(item => item.name);
   }
 
   parseModelFilter(modelFilter) {
@@ -624,12 +700,24 @@ export class SyncEngine {
   /**
    * Compare a single model between source and target
    */
-  async compareModel(sourceClient, targetClient, model, companyId = null) {
+  async compareModel(sourceClient, targetClient, model, options = {}) {
+    const {
+      companyId = null,
+      mappingContext = null,
+      incrementalSince = null,
+      writeMappings = false
+    } = options || {};
     try {
       logger.debug(`Comparing model: ${model}`);
 
       const sourceDomain = await this.getModelDomain(sourceClient, model, companyId);
       const targetDomain = await this.getModelDomain(targetClient, model, companyId);
+      if (incrementalSince) {
+        const sourceFieldNames = await this.getModelFieldNames(sourceClient, model);
+        if (sourceFieldNames.has('write_date')) {
+          sourceDomain.push(['write_date', '>', incrementalSince]);
+        }
+      }
 
       // Get all records from source
       const sourceRecords = await sourceClient.search(model, sourceDomain, 0, 0);
@@ -648,6 +736,8 @@ export class SyncEngine {
       // Convert to maps for easier lookup
       const sourceMap = new Map(sourceData.map(r => [r.id, r]));
       const targetMap = new Map(targetData.map(r => [r.id, r]));
+      const targetKeyMap = this.buildTargetKeyMap(model, targetData);
+      const matchedTargetIds = new Set();
 
       const comparison = {
         model,
@@ -659,19 +749,83 @@ export class SyncEngine {
 
       // Find records to create (in source but not in target)
       for (const [id, sourceRecord] of sourceMap) {
-        if (!targetMap.has(id)) {
+        let targetRecord = null;
+        let targetId = null;
+
+        if (mappingContext) {
+          const mappedId = this.getMappedTargetId(mappingContext, model, id);
+          if (mappedId) {
+            targetRecord = targetMap.get(mappedId) || null;
+            targetId = targetRecord?.id || null;
+            if (targetRecord && writeMappings) {
+              this.storeIdMapping(mappingContext, model, id, targetRecord.id);
+            }
+          }
+        }
+        if (!targetRecord) {
+          const targetMatch = this.findTargetByBusinessKey(model, sourceRecord, targetKeyMap);
+          if (targetMatch) {
+            targetRecord = targetMatch;
+            targetId = targetMatch.id;
+            if (mappingContext && writeMappings) {
+              this.storeIdMapping(mappingContext, model, id, targetMatch.id);
+            }
+          }
+        }
+        if (!targetRecord) {
+          targetRecord = targetMap.get(id) || null;
+          targetId = targetRecord?.id || null;
+          if (targetRecord && mappingContext && writeMappings) {
+            this.storeIdMapping(mappingContext, model, id, targetRecord.id);
+          }
+        }
+
+        if (!targetRecord) {
           comparison.to_create.records.push({
             id,
             data: sourceRecord
           });
           comparison.to_create.count++;
+        } else {
+          matchedTargetIds.add(targetId);
         }
       }
 
       // Find records to update or conflicts
       for (const [id, sourceRecord] of sourceMap) {
-        const targetRecord = targetMap.get(id);
+        let targetRecord = null;
+        let targetId = null;
+        let sourceId = id;
+
+        if (mappingContext) {
+          const mappedId = this.getMappedTargetId(mappingContext, model, id);
+          if (mappedId) {
+            targetRecord = targetMap.get(mappedId) || null;
+            targetId = targetRecord?.id || null;
+            if (targetRecord && writeMappings) {
+              this.storeIdMapping(mappingContext, model, id, targetRecord.id);
+            }
+          }
+        }
+        if (!targetRecord) {
+          const targetMatch = this.findTargetByBusinessKey(model, sourceRecord, targetKeyMap);
+          if (targetMatch) {
+            targetRecord = targetMatch;
+            targetId = targetMatch.id;
+            if (mappingContext && writeMappings) {
+              this.storeIdMapping(mappingContext, model, id, targetMatch.id);
+            }
+          }
+        }
+        if (!targetRecord) {
+          targetRecord = targetMap.get(id) || null;
+          targetId = targetRecord?.id || null;
+          if (targetRecord && mappingContext && writeMappings) {
+            this.storeIdMapping(mappingContext, model, id, targetRecord.id);
+          }
+        }
         if (targetRecord) {
+          matchedTargetIds.add(targetId);
           // Compare records for differences
           const diff = this.compareRecords(sourceRecord, targetRecord);
           if (diff.hasDifferences) {
@@ -679,7 +833,8 @@ export class SyncEngine {
             const hasConflict = this.detectConflict(sourceRecord, targetRecord, diff);
             if (hasConflict) {
               comparison.conflicts.push({
-                record_id: id,
+                record_id: targetId,
+                source_id: sourceId,
                 source_values: sourceRecord,
                 target_values: targetRecord,
                 differences: diff.differences,
@@ -691,7 +846,8 @@ export class SyncEngine {
             } else {
               // Regular update
               comparison.to_update.records.push({
-                id,
+                id: targetId,
+                source_id: sourceId,
                 source: sourceRecord,
                 target: targetRecord,
                 differences: diff.differences
@@ -705,7 +861,7 @@ export class SyncEngine {
       if (!this.disableDeletes) {
         // Find records to delete (in target but not in source)
         for (const [id, targetRecord] of targetMap) {
-          if (!sourceMap.has(id)) {
+          if (!sourceMap.has(id) && !matchedTargetIds.has(id)) {
             comparison.to_delete.records.push({
               id,
               data: targetRecord
@@ -770,6 +926,7 @@ export class SyncEngine {
 
   async executeCreates(model, records, targetClient, dataPreserver, rollbackOperations, mock, dependencySync = null) {
     let count = 0;
+    const mappingContext = dependencySync?.mappingContext || null;
 
     for (const record of records) {
       const values = dataPreserver
@@ -778,6 +935,203 @@ export class SyncEngine {
       const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
 
       if (!mock && targetClient) {
+        if (model === 'product.template' || model === 'product.product') {
+          this.stripUserReferences(filteredValues);
+          const categoryName = this.extractDisplayName(record.data?.categ_id)
+            || this.extractDisplayName(filteredValues?.categ_id);
+          if (categoryName) {
+            let categoryId = await this.findModelIdByName(targetClient, 'product.category', categoryName);
+            if (!categoryId) {
+              categoryId = await targetClient.create('product.category', { name: categoryName });
+            }
+            filteredValues.categ_id = categoryId;
+          }
+
+          if (model === 'product.template') {
+            const barcode = filteredValues?.barcode;
+            if (barcode) {
+              const existingProductIds = await targetClient.search(
+                'product.product',
+                [['barcode', '=', barcode]],
+                0,
+                1
+              );
+              if (existingProductIds.length > 0) {
+                const existingProduct = await targetClient.read(
+                  'product.product',
+                  existingProductIds[0],
+                  ['product_tmpl_id']
+                );
+                const templateId = existingProduct?.[0]?.product_tmpl_id?.[0];
+                if (templateId) {
+                  const previous = await targetClient.read(model, templateId, []);
+                  logger.info(`Barcode ${barcode} exists; updating ${model} ${templateId} instead of create.`);
+                  await targetClient.write(model, templateId, filteredValues);
+                  rollbackOperations.updated.push({
+                    model,
+                    record_id: templateId,
+                    previous_values: previous?.[0] || null
+                  });
+                  this.storeIdMapping(mappingContext, model, record.id, templateId);
+                  count += 1;
+                  continue;
+                }
+              }
+            }
+          }
+
+          if (model === 'product.product') {
+            const templateName = this.extractDisplayName(record.data?.product_tmpl_id);
+            const templateInfo = { name: templateName || null, barcode: null, default_code: null };
+            let templateId = null;
+
+            if (templateInfo.name) {
+              templateId = await this.findModelIdByName(targetClient, 'product.template', templateInfo.name);
+            }
+
+            if (!templateId) {
+              const templateRefId = Array.isArray(record.data?.product_tmpl_id)
+                ? record.data.product_tmpl_id[0]
+                : record.data?.product_tmpl_id;
+              if (templateRefId && dependencySync?.sourceClient) {
+                try {
+                  const sourceTemplate = await dependencySync.sourceClient.read(
+                    'product.template',
+                    [templateRefId],
+                    ['name', 'barcode', 'default_code']
+                  );
+                  const sourceData = sourceTemplate?.[0] || {};
+                  templateInfo.name = templateInfo.name || sourceData.name || null;
+                  templateInfo.barcode = sourceData.barcode || null;
+                  templateInfo.default_code = sourceData.default_code || null;
+                } catch (error) {
+                  logger.warn(`Failed to load product.template ${templateRefId} from source: ${error.message}`);
+                }
+              }
+            }
+
+            if (!templateId) {
+              templateId = await this.findProductTemplateId(targetClient, templateInfo);
+            }
+
+            if (!templateId && dependencySync) {
+              await this.syncModelDependencies(dependencySync, model);
+              templateId = await this.findProductTemplateId(targetClient, templateInfo);
+            }
+
+            if (templateId) {
+              filteredValues.product_tmpl_id = templateId;
+            } else {
+              logger.warn(`Skipping product.product create: product.template not found for ${filteredValues.default_code || filteredValues.name || record.id}.`);
+              continue;
+            }
+
+            if (filteredValues.product_tmpl_id) {
+              const productFieldNames = await this.getModelFieldNames(targetClient, 'product.product');
+              const productDomain = [['product_tmpl_id', '=', filteredValues.product_tmpl_id]];
+              if (productFieldNames.has('combination_indices') && filteredValues?.combination_indices) {
+                productDomain.push(['combination_indices', '=', filteredValues.combination_indices]);
+              }
+              const existingProductIds = await targetClient.search(
+                'product.product',
+                productDomain,
+                0,
+                1
+              );
+              if (existingProductIds.length > 0) {
+                const existingId = existingProductIds[0];
+                const previous = await targetClient.read('product.product', existingId, []);
+                logger.info(`Product variant exists; updating product.product ${existingId} instead of create.`);
+                await targetClient.write('product.product', existingId, filteredValues);
+                rollbackOperations.updated.push({
+                  model: 'product.product',
+                  record_id: existingId,
+                  previous_values: previous?.[0] || null
+                });
+                this.storeIdMapping(mappingContext, 'product.product', record.id, existingId);
+                count += 1;
+                continue;
+              }
+            }
+          }
+        }
+
+        if (model === 'pos.config') {
+          const configName = filteredValues?.name || this.extractDisplayName(record.data?.name);
+          if (configName) {
+            const existingConfigId = await this.findModelIdByName(targetClient, 'pos.config', configName);
+            if (existingConfigId) {
+              const previous = await targetClient.read(model, existingConfigId, []);
+              logger.info(`POS config ${configName} exists; updating ${model} ${existingConfigId} instead of create.`);
+              await targetClient.write(model, existingConfigId, filteredValues);
+              rollbackOperations.updated.push({
+                model,
+                record_id: existingConfigId,
+                previous_values: previous?.[0] || null
+              });
+              this.storeIdMapping(mappingContext, model, record.id, existingConfigId);
+              count += 1;
+              continue;
+            }
+          }
+
+          const pickingName = this.extractDisplayName(record.data?.picking_type_id)
+            || this.extractDisplayName(filteredValues?.picking_type_id);
+          if (pickingName) {
+            const targetPickingId = await this.findModelIdByName(
+              targetClient,
+              'stock.picking.type',
+              pickingName
+            );
+            if (targetPickingId) {
+              filteredValues.picking_type_id = targetPickingId;
+            } else {
+              logger.warn(`Skipping pos.config create: picking type not found (${pickingName}).`);
+              continue;
+            }
+          } else if (filteredValues?.picking_type_id) {
+            logger.warn('Skipping pos.config create: picking type name missing.');
+            continue;
+          }
+        }
+
+        if (model === 'pos.session') {
+          const configName = this.extractDisplayName(filteredValues?.config_id);
+          if (configName) {
+            const targetConfigId = await this.findModelIdByName(targetClient, 'pos.config', configName);
+            if (targetConfigId) {
+              filteredValues.config_id = targetConfigId;
+            } else {
+              logger.warn(`Skipping pos.session create: config not found (${configName}).`);
+              continue;
+            }
+          }
+        }
+
+        if (model === 'pos.order') {
+          const sessionName = this.extractDisplayName(filteredValues?.session_id);
+          const configName = this.extractDisplayName(filteredValues?.config_id);
+          let targetConfigId = null;
+          let targetSessionId = null;
+
+          if (configName) {
+            targetConfigId = await this.findModelIdByName(targetClient, 'pos.config', configName);
+          }
+          if (sessionName && targetConfigId) {
+            targetSessionId = await this.findPosSessionId(targetClient, sessionName, targetConfigId);
+          }
+
+          if (!targetSessionId) {
+            logger.warn(`Skipping pos.order create: session not found (${sessionName || 'unknown'}).`);
+            continue;
+          }
+
+          filteredValues.session_id = targetSessionId;
+          if (targetConfigId) {
+            filteredValues.config_id = targetConfigId;
+          }
+        }
+
         if (model === 'account.analytic.account' && filteredValues?.company_id) {
           const companyRef = this.extractCompanyRef(record.data?.company_id, record.data);
           const mappedCompanyId = await this.findCompanyId(targetClient, companyRef);
@@ -789,31 +1143,195 @@ export class SyncEngine {
         }
 
         if (model === 'account.account' && filteredValues?.code) {
-          const existingIds = await targetClient.search(model, [['code', '=', filteredValues.code]], 0, 1);
+          const code = filteredValues.code;
+          const companyId = this.extractCompanyId(filteredValues.company_id);
+          let existingIds = [];
+          let matchedCompany = false;
+
+          if (companyId) {
+            existingIds = await targetClient.search(
+              model,
+              [['code', '=', code], ['company_id', '=', companyId]],
+              0,
+              1
+            );
+            matchedCompany = existingIds.length > 0;
+          }
+
+          if (existingIds.length === 0) {
+            existingIds = await targetClient.search(model, [['code', '=', code]], 0, 1);
+          }
+
           if (existingIds.length > 0) {
             const existingId = existingIds[0];
             const previous = await targetClient.read(model, existingId, []);
-            logger.info(`Account code ${filteredValues.code} exists; updating ${model} ${existingId} instead of create.`);
-            await targetClient.write(model, existingId, filteredValues);
+            const updateValues = { ...filteredValues };
+            if (!matchedCompany) {
+              delete updateValues.company_id;
+            }
+            logger.info(`Account code ${code} exists; updating ${model} ${existingId} instead of create.`);
+            await targetClient.write(model, existingId, updateValues);
             rollbackOperations.updated.push({
               model,
               record_id: existingId,
               previous_values: previous?.[0] || null
             });
+            this.storeIdMapping(mappingContext, model, record.id, existingId);
             count += 1;
             continue;
           }
         }
 
+        if (model === 'sale.order') {
+          const partnerFields = ['partner_id', 'partner_invoice_id', 'partner_shipping_id'];
+          let skipCreate = false;
+          for (const field of partnerFields) {
+            if (!filteredValues?.[field]) {
+              continue;
+            }
+            let partnerId = await this.resolvePartnerId(
+              targetClient,
+              dependencySync?.sourceClient || null,
+              filteredValues[field]
+            );
+            if (!partnerId && dependencySync) {
+              await this.syncModelDependencies(dependencySync, model);
+              partnerId = await this.resolvePartnerId(
+                targetClient,
+                dependencySync.sourceClient || null,
+                filteredValues[field]
+              );
+            }
+            if (partnerId) {
+              filteredValues[field] = partnerId;
+            } else {
+              logger.warn(`Skipping sale.order create: ${field} not found (${this.extractDisplayName(filteredValues[field]) || 'unknown'}).`);
+              skipCreate = true;
+              break;
+            }
+          }
+          if (skipCreate) {
+            continue;
+          }
+
+          if (filteredValues?.user_id) {
+            let userId = await this.resolveUserId(
+              targetClient,
+              dependencySync?.sourceClient || null,
+              filteredValues.user_id
+            );
+            if (!userId && dependencySync) {
+              await this.syncModelDependencies(dependencySync, model);
+              userId = await this.resolveUserId(
+                targetClient,
+                dependencySync.sourceClient || null,
+                filteredValues.user_id
+              );
+            }
+            if (!userId) {
+              userId = await this.findFallbackUserId(targetClient);
+              if (userId) {
+                logger.warn(`Salesperson not found; assigning fallback user ${userId} for sale.order.`);
+              }
+            }
+            if (userId) {
+              filteredValues.user_id = userId;
+            } else {
+              logger.warn(`Skipping sale.order create: user_id not found (${this.extractDisplayName(filteredValues.user_id) || 'unknown'}).`);
+              continue;
+            }
+          }
+        }
+
+        if (model === 'res.partner') {
+          const countryId = await this.resolveCountryId(
+            targetClient,
+            dependencySync?.sourceClient || null,
+            filteredValues?.country_id
+          );
+          if (countryId) {
+            filteredValues.country_id = countryId;
+          }
+
+          if (filteredValues?.state_id) {
+            let stateId = await this.resolveStateId(
+              targetClient,
+              dependencySync?.sourceClient || null,
+              filteredValues.state_id,
+              filteredValues?.country_id
+            );
+            if (!stateId && dependencySync) {
+              await this.syncModelDependencies(dependencySync, model);
+              stateId = await this.resolveStateId(
+                targetClient,
+                dependencySync.sourceClient || null,
+                filteredValues.state_id,
+                filteredValues?.country_id
+              );
+            }
+            if (stateId) {
+              filteredValues.state_id = stateId;
+            } else {
+              logger.warn(`Skipping res.partner create: state_id not found (${this.extractDisplayName(filteredValues.state_id) || 'unknown'}).`);
+              continue;
+            }
+          }
+        }
+
+        if (model === 'account.account') {
+          const companyId = this.extractCompanyId(filteredValues?.company_id);
+          if (!filteredValues?.code || !companyId) {
+            logger.warn('Skipping account.account create: missing code or company_id.');
+            continue;
+          }
+        }
+
+        const mappedTargetId = this.getMappedTargetId(mappingContext, model, record.id);
+        if (mappedTargetId) {
+          const previous = await targetClient.read(model, mappedTargetId, []);
+          logger.info(`Mapped ${model} ${record.id} to ${mappedTargetId}; updating instead of create.`);
+          await targetClient.write(model, mappedTargetId, filteredValues);
+          rollbackOperations.updated.push({
+            model,
+            record_id: mappedTargetId,
+            previous_values: previous?.[0] || null
+          });
+          this.storeIdMapping(mappingContext, model, record.id, mappedTargetId);
+          count += 1;
+          continue;
+        }
+
         try {
-          await targetClient.create(model, filteredValues);
+          const createdId = await targetClient.create(model, filteredValues);
+          this.storeIdMapping(mappingContext, model, record.id, createdId);
         } catch (error) {
+          if (model === 'account.account' && filteredValues?.code) {
+            const existingIds = await targetClient.search(model, [['code', '=', filteredValues.code]], 0, 1);
+            if (existingIds.length > 0) {
+              const existingId = existingIds[0];
+              const previous = await targetClient.read(model, existingId, []);
+              const updateValues = { ...filteredValues };
+              delete updateValues.company_id;
+              delete updateValues.company_ids;
+              logger.info(`Account code ${filteredValues.code} exists; updating ${model} ${existingId} after create error.`);
+              await targetClient.write(model, existingId, updateValues);
+              rollbackOperations.updated.push({
+                model,
+                record_id: existingId,
+                previous_values: previous?.[0] || null
+              });
+              this.storeIdMapping(mappingContext, model, record.id, existingId);
+              count += 1;
+              continue;
+            }
+          }
           if (dependencySync && this.shouldRetryAfterDependencySync(error)) {
             const retryKey = `${model}`;
             if (!dependencySync.attemptedModels.has(retryKey)) {
               dependencySync.attemptedModels.add(retryKey);
               await this.syncModelDependencies(dependencySync, model);
-              await targetClient.create(model, filteredValues);
+              const createdId = await targetClient.create(model, filteredValues);
+              this.storeIdMapping(mappingContext, model, record.id, createdId);
             } else {
               throw error;
             }
@@ -832,6 +1350,11 @@ export class SyncEngine {
     }
 
     return count;
+  }
+
+  isAccountCompanyCodeError(error) {
+    const message = error?.details?.data?.arguments?.[0] || error?.message || '';
+    return String(message).toLowerCase().includes('code must be set for every company');
   }
 
   shouldRetryAfterDependencySync(error) {
@@ -889,7 +1412,12 @@ export class SyncEngine {
             sourceClient,
             targetClient,
             depModel,
-            companyId
+            {
+              companyId,
+              mappingContext: dependencySync.mappingContext,
+              incrementalSince: dependencySync.incrementalSince,
+              writeMappings: true
+            }
           );
           await this.executeCreates(
             depModel,
@@ -906,7 +1434,8 @@ export class SyncEngine {
             targetClient,
             dataPreserver,
             rollbackOperations,
-            mock
+            mock,
+            dependencySync
           );
         } catch (error) {
           if (!this.isAccessDeniedError(error)) {
@@ -919,14 +1448,16 @@ export class SyncEngine {
     }
   }
 
-  async executeUpdates(model, records, targetClient, dataPreserver, rollbackOperations, mock) {
+  async executeUpdates(model, records, targetClient, dataPreserver, rollbackOperations, mock, dependencySync = null) {
     let count = 0;
+    const mappingContext = dependencySync?.mappingContext || null;
 
     for (const record of records) {
       const values = dataPreserver
         ? dataPreserver.prepareUpdateValues(record.source)
         : record.source;
       const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
+      const sourceId = record.source_id || record.id;
 
       if (!mock && targetClient) {
         if (model === 'account.analytic.account' && filteredValues?.company_id) {
@@ -947,6 +1478,7 @@ export class SyncEngine {
         record_id: record.id,
         previous_values: record.target || null
       });
+      this.storeIdMapping(mappingContext, model, sourceId, record.id);
       count += 1;
     }
 
@@ -1120,6 +1652,51 @@ export class SyncEngine {
     return trimmed;
   }
 
+  formatOdooDatetime(value) {
+    if (!value) {
+      return null;
+    }
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+      `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+
+  extractCompanyId(value) {
+    if (!value) {
+      return null;
+    }
+    if (Array.isArray(value)) {
+      return value.length > 0 ? value[0] : null;
+    }
+    if (typeof value === 'object') {
+      return value.id || null;
+    }
+    return value;
+  }
+
+  stripUserReferences(values) {
+    if (!values || typeof values !== 'object') {
+      return;
+    }
+    const userFields = [
+      'create_uid',
+      'write_uid',
+      'responsible_id',
+      'product_manager',
+      'user_id',
+      'salesperson_id'
+    ];
+    userFields.forEach(field => {
+      if (field in values) {
+        delete values[field];
+      }
+    });
+  }
+
   extractCompanyRef(companyValue, record) {
     let name = null;
     let code = null;
@@ -1138,6 +1715,421 @@ export class SyncEngine {
     }
 
     return { name, code };
+  }
+
+  extractDisplayName(value) {
+    if (!value) {
+      return null;
+    }
+    if (Array.isArray(value) && value.length >= 2 && typeof value[1] === 'string') {
+      return value[1];
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+    if (value && typeof value === 'object') {
+      return value.name || value.display_name || null;
+    }
+    return null;
+  }
+
+  normalizeKeyValue(value) {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    if (Array.isArray(value)) {
+      if (value.length >= 2 && typeof value[1] === 'string') {
+        return value[1];
+      }
+      return value[0] || null;
+    }
+    if (typeof value === 'object') {
+      return value.name || value.display_name || value.id || null;
+    }
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+    return String(value);
+  }
+
+  getBusinessKeyCandidates(model, record) {
+    if (!record || typeof record !== 'object') {
+      return [];
+    }
+    const keys = [];
+    const addKey = (name, value) => {
+      const normalized = this.normalizeKeyValue(value);
+      if (normalized) {
+        keys.push(`${name}:${String(normalized).toLowerCase()}`);
+      }
+    };
+    const addCompositeKey = (name, parts) => {
+      const normalizedParts = parts
+        .map(part => this.normalizeKeyValue(part))
+        .filter(Boolean)
+        .map(part => String(part).toLowerCase());
+      if (normalizedParts.length === parts.length) {
+        keys.push(`${name}:${normalizedParts.join('|')}`);
+      }
+    };
+
+    switch (model) {
+      case 'product.template':
+        addKey('barcode', record.barcode);
+        addKey('default_code', record.default_code);
+        addKey('name', record.name);
+        break;
+      case 'product.product':
+        addKey('barcode', record.barcode);
+        addKey('default_code', record.default_code);
+        addCompositeKey(
+          'template_combo',
+          [this.extractDisplayName(record.product_tmpl_id), record.combination_indices]
+        );
+        break;
+      case 'res.partner':
+        addKey('email', record.email);
+        addKey('vat', record.vat);
+        addKey('ref', record.ref);
+        addKey('name', record.name);
+        break;
+      case 'sale.order':
+      case 'pos.order':
+      case 'pos.config':
+      case 'res.partner.category':
+      case 'res.partner.industry':
+      case 'res.partner.title':
+        addKey('name', record.name);
+        break;
+      case 'pos.session':
+        addCompositeKey('name_config', [record.name, this.extractDisplayName(record.config_id)]);
+        break;
+      case 'res.users':
+        addKey('login', record.login);
+        addKey('email', record.email);
+        addKey('name', record.name);
+        break;
+      case 'res.country':
+        addKey('code', record.code);
+        addKey('name', record.name);
+        break;
+      case 'res.country.state':
+        addCompositeKey('code_country', [record.code, this.extractDisplayName(record.country_id)]);
+        addCompositeKey('name_country', [record.name, this.extractDisplayName(record.country_id)]);
+        break;
+      default:
+        addKey('name', record.name);
+        break;
+    }
+
+    return keys;
+  }
+
+  buildTargetKeyMap(model, records) {
+    const keyMap = new Map();
+    for (const record of records || []) {
+      const keys = this.getBusinessKeyCandidates(model, record);
+      for (const key of keys) {
+        if (!keyMap.has(key)) {
+          keyMap.set(key, record);
+        }
+      }
+    }
+    return keyMap;
+  }
+
+  findTargetByBusinessKey(model, sourceRecord, targetKeyMap) {
+    if (!targetKeyMap || targetKeyMap.size === 0) {
+      return null;
+    }
+    const keys = this.getBusinessKeyCandidates(model, sourceRecord);
+    for (const key of keys) {
+      const match = targetKeyMap.get(key);
+      if (match) {
+        return match;
+      }
+    }
+    return null;
+  }
+
+  getMappingContext(sourceDbId, targetDbId) {
+    if (!this.idMapModel) {
+      return null;
+    }
+    if (!Number.isInteger(sourceDbId) || !Number.isInteger(targetDbId)) {
+      return null;
+    }
+    return { sourceDbId, targetDbId };
+  }
+
+  getMappedTargetId(mappingContext, model, sourceId) {
+    if (!this.idMapModel || !mappingContext || !model || !sourceId) {
+      return null;
+    }
+    return this.idMapModel.getTargetId(
+      mappingContext.sourceDbId,
+      mappingContext.targetDbId,
+      model,
+      sourceId
+    );
+  }
+
+  storeIdMapping(mappingContext, model, sourceId, targetId) {
+    if (!this.idMapModel || !mappingContext || !model || !sourceId || !targetId) {
+      return;
+    }
+    this.idMapModel.upsertMapping(
+      mappingContext.sourceDbId,
+      mappingContext.targetDbId,
+      model,
+      sourceId,
+      targetId
+    );
+  }
+
+  async findModelIdByName(targetClient, model, name) {
+    if (!targetClient || !name) {
+      return null;
+    }
+    const ids = await targetClient.search(model, [['name', '=', name]], 0, 1);
+    return ids.length > 0 ? ids[0] : null;
+  }
+
+  async resolvePartnerId(targetClient, sourceClient, value) {
+    if (!targetClient || !value) {
+      return null;
+    }
+    const name = this.extractDisplayName(value);
+    let partnerId = null;
+    const fieldNames = await this.getModelFieldNames(targetClient, 'res.partner');
+
+    if (name) {
+      partnerId = await this.findModelIdByName(targetClient, 'res.partner', name);
+      if (partnerId) {
+        return partnerId;
+      }
+    }
+
+    const sourceId = Array.isArray(value) ? value[0] : value;
+    if (sourceClient && sourceId) {
+      try {
+        const sourcePartner = await sourceClient.read(
+          'res.partner',
+          [sourceId],
+          ['name', 'email', 'vat', 'ref']
+        );
+        const partner = sourcePartner?.[0] || {};
+        const lookups = [];
+        if (partner.email && fieldNames.has('email')) {
+          lookups.push(['email', '=', partner.email]);
+        }
+        if (partner.vat && fieldNames.has('vat')) {
+          lookups.push(['vat', '=', partner.vat]);
+        }
+        if (partner.ref && fieldNames.has('ref')) {
+          lookups.push(['ref', '=', partner.ref]);
+        }
+        if (partner.name) {
+          lookups.push(['name', '=', partner.name]);
+        }
+
+        for (const domain of lookups) {
+          const ids = await targetClient.search('res.partner', [domain], 0, 1);
+          if (ids.length > 0) {
+            return ids[0];
+          }
+        }
+      } catch (error) {
+        logger.warn(`Failed to resolve res.partner ${sourceId}: ${error.message}`);
+      }
+    }
+
+    return null;
+  }
+
+  async resolveCountryId(targetClient, sourceClient, value) {
+    if (!targetClient || !value) {
+      return null;
+    }
+    const name = this.extractDisplayName(value);
+    if (name) {
+      const idByName = await this.findModelIdByName(targetClient, 'res.country', name);
+      if (idByName) {
+        return idByName;
+      }
+    }
+
+    const sourceId = Array.isArray(value) ? value[0] : value;
+    if (sourceClient && sourceId) {
+      try {
+        const sourceCountry = await sourceClient.read(
+          'res.country',
+          [sourceId],
+          ['name', 'code']
+        );
+        const country = sourceCountry?.[0] || {};
+        if (country.code) {
+          const ids = await targetClient.search('res.country', [['code', '=', country.code]], 0, 1);
+          if (ids.length > 0) {
+            return ids[0];
+          }
+        }
+        if (country.name) {
+          const idByName = await this.findModelIdByName(targetClient, 'res.country', country.name);
+          if (idByName) {
+            return idByName;
+          }
+        }
+      } catch (error) {
+        logger.warn(`Failed to resolve res.country ${sourceId}: ${error.message}`);
+      }
+    }
+
+    return null;
+  }
+
+  async resolveUserId(targetClient, sourceClient, value) {
+    if (!targetClient || !value) {
+      return null;
+    }
+    const name = this.extractDisplayName(value);
+    if (name) {
+      const idByName = await this.findModelIdByName(targetClient, 'res.users', name);
+      if (idByName) {
+        return idByName;
+      }
+    }
+
+    const sourceId = Array.isArray(value) ? value[0] : value;
+    if (sourceClient && sourceId) {
+      try {
+        const sourceUser = await sourceClient.read(
+          'res.users',
+          [sourceId],
+          ['login', 'email', 'name']
+        );
+        const user = sourceUser?.[0] || {};
+        const lookups = [];
+        if (user.login) {
+          lookups.push(['login', '=', user.login]);
+        }
+        if (user.email) {
+          lookups.push(['email', '=', user.email]);
+        }
+        if (user.name) {
+          lookups.push(['name', '=', user.name]);
+        }
+        for (const domain of lookups) {
+          const ids = await targetClient.search('res.users', [domain], 0, 1);
+          if (ids.length > 0) {
+            return ids[0];
+          }
+        }
+      } catch (error) {
+        logger.warn(`Failed to resolve res.users ${sourceId}: ${error.message}`);
+      }
+    }
+
+    return null;
+  }
+
+  async findFallbackUserId(targetClient) {
+    if (!targetClient) {
+      return null;
+    }
+    const ids = await targetClient.search('res.users', [], 0, 1);
+    return ids.length > 0 ? ids[0] : null;
+  }
+
+  async resolveStateId(targetClient, sourceClient, value, countryId = null) {
+    if (!targetClient || !value) {
+      return null;
+    }
+    const name = this.extractDisplayName(value);
+    const stateDomain = [];
+    if (name) {
+      stateDomain.push(['name', '=', name]);
+    }
+    const countryKey = this.extractCompanyId(countryId);
+    if (countryKey) {
+      stateDomain.push(['country_id', '=', countryKey]);
+    }
+    if (stateDomain.length > 0) {
+      const ids = await targetClient.search('res.country.state', stateDomain, 0, 1);
+      if (ids.length > 0) {
+        return ids[0];
+      }
+    }
+
+    const sourceId = Array.isArray(value) ? value[0] : value;
+    if (sourceClient && sourceId) {
+      try {
+        const sourceState = await sourceClient.read(
+          'res.country.state',
+          [sourceId],
+          ['name', 'code', 'country_id']
+        );
+        const state = sourceState?.[0] || {};
+        if (state.code) {
+          const domain = [['code', '=', state.code]];
+          const srcCountryId = Array.isArray(state.country_id) ? state.country_id[0] : null;
+          if (srcCountryId) {
+            const targetCountryId = await this.resolveCountryId(targetClient, sourceClient, state.country_id);
+            if (targetCountryId) {
+              domain.push(['country_id', '=', targetCountryId]);
+            }
+          }
+          const ids = await targetClient.search('res.country.state', domain, 0, 1);
+          if (ids.length > 0) {
+            return ids[0];
+          }
+        }
+      } catch (error) {
+        logger.warn(`Failed to resolve res.country.state ${sourceId}: ${error.message}`);
+      }
+    }
+
+    return null;
+  }
+
+  async findProductTemplateId(targetClient, templateInfo) {
+    if (!targetClient || !templateInfo) {
+      return null;
+    }
+
+    const fieldNames = await this.getModelFieldNames(targetClient, 'product.template');
+    if (templateInfo.barcode && fieldNames.has('barcode')) {
+      const ids = await targetClient.search('product.template', [['barcode', '=', templateInfo.barcode]], 0, 1);
+      if (ids.length > 0) {
+        return ids[0];
+      }
+    }
+
+    if (templateInfo.default_code && fieldNames.has('default_code')) {
+      const ids = await targetClient.search('product.template', [['default_code', '=', templateInfo.default_code]], 0, 1);
+      if (ids.length > 0) {
+        return ids[0];
+      }
+    }
+
+    if (templateInfo.name) {
+      return this.findModelIdByName(targetClient, 'product.template', templateInfo.name);
+    }
+
+    return null;
+  }
+
+  async findPosSessionId(targetClient, sessionName, configId) {
+    if (!targetClient || !sessionName || !configId) {
+      return null;
+    }
+    const ids = await targetClient.search(
+      'pos.session',
+      [['name', '=', sessionName], ['config_id', '=', configId]],
+      0,
+      1
+    );
+    return ids.length > 0 ? ids[0] : null;
   }
 
   async findCompanyId(targetClient, companyRef) {

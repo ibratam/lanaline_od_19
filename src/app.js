@@ -21,6 +21,7 @@ import NotificationService from './services/NotificationService.js';
 import ConflictLock from './models/ConflictLock.js';
 import ConsistencyChecker from './services/ConsistencyChecker.js';
 import DataInconsistency from './models/DataInconsistency.js';
+import SyncIdMap from './models/SyncIdMap.js';
 
 // Load environment variables
 dotenv.config();
@@ -54,6 +55,7 @@ export function createApp(db) {
 
   // Initialize consistency checking services
   services.dataInconsistencyModel = new DataInconsistency(db.getDB());
+  services.idMapModel = new SyncIdMap(db.getDB());
   services.consistencyChecker = new ConsistencyChecker(
     db.getDB(),
     services.odooClient, // Will be set by sync service
