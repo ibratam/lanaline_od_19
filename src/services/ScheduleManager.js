@@ -15,6 +15,7 @@ export class ScheduleManager {
     this.historyLogger = services.historyLogger || new HistoryLogger(db);
     this.dataPreserver = services.dataPreserver || new DataPreserver();
     this.notificationService = services.notificationService || new NotificationService();
+    this.idMapModel = services.idMapModel || null;
     this.jobs = new Map();
     this.running = false;
   }
@@ -92,6 +93,7 @@ export class ScheduleManager {
           ? JSON.parse(schedule.model_filter)
           : schedule.model_filter)
         : null;
+      const companyId = schedule.company_id ?? null;
 
       syncRun = this.historyLogger.createRun({
         source_db_id: schedule.source_db_id,
@@ -130,13 +132,28 @@ export class ScheduleManager {
         await targetClient.authenticate();
       }
 
-      const syncEngine = new SyncEngine(sourceClient);
+      const syncEngine = new SyncEngine(sourceClient, { idMapModel: this.idMapModel });
+      const database = this.db.getDB ? this.db.getDB() : this.db;
+      const incrementalSince = database.prepare(`
+        SELECT completed_at
+        FROM sync_runs
+        WHERE source_db_id = ?
+          AND target_db_id = ?
+          AND status = 'completed'
+          AND preview_only = 0
+        ORDER BY completed_at DESC
+        LIMIT 1
+      `).get(syncRun.source_db_id, syncRun.target_db_id)?.completed_at || null;
       const result = await syncEngine.executeSync({
         sourceClient,
         targetClient,
         modelFilter: modelFilter,
+        companyId,
         dataPreserver: this.dataPreserver,
-        mock: mockMode
+        mock: mockMode,
+        sourceDbId: syncRun.source_db_id,
+        targetDbId: syncRun.target_db_id,
+        incrementalSince
       });
 
       const completedAt = new Date().toISOString();

@@ -24,6 +24,25 @@ export class SyncConflict {
         target_write_date
       } = data;
 
+      const normalizeJson = value => (
+        typeof value === 'string' ? value : JSON.stringify(value ?? null)
+      );
+      const normalizeDateValue = value => {
+        if (value == null || value === false) {
+          return null;
+        }
+        if (value instanceof Date) {
+          return value.toISOString();
+        }
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'bigint') {
+          return value;
+        }
+        if (typeof value === 'boolean') {
+          return null;
+        }
+        return JSON.stringify(value);
+      };
+
       const stmt = this.db.prepare(`
         INSERT INTO sync_conflicts (
           sync_run_id, odoo_model, record_id, source_db_id, target_db_id,
@@ -38,12 +57,12 @@ export class SyncConflict {
         record_id,
         source_db_id,
         target_db_id,
-        typeof source_values === 'string' ? source_values : JSON.stringify(source_values),
-        typeof target_values === 'string' ? target_values : JSON.stringify(target_values),
-        source_create_date,
-        target_create_date,
-        source_write_date,
-        target_write_date
+        normalizeJson(source_values),
+        normalizeJson(target_values),
+        normalizeDateValue(source_create_date),
+        normalizeDateValue(target_create_date),
+        normalizeDateValue(source_write_date),
+        normalizeDateValue(target_write_date)
       );
 
       logger.info(`Created sync conflict: ID ${result.lastInsertRowid}`);

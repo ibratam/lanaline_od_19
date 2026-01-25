@@ -9,10 +9,23 @@ export class ConflictsList {
     this.conflicts = [];
     this.stateFilter = 'detected';
     this.modelFilter = '';
+    this.connections = [];
+    this.sourceId = null;
     this.cursor = null;
   }
 
   async load() {
+    if (!this.connections.length) {
+      try {
+        this.connections = await apiClient.getConfigs();
+        if (!this.sourceId && this.connections.length > 0) {
+          this.sourceId = this.connections[0].id;
+        }
+      } catch {
+        this.connections = [];
+      }
+    }
+
     const response = await apiClient.getConflicts({
       state: this.stateFilter || undefined,
       model: this.modelFilter || undefined,
@@ -26,6 +39,9 @@ export class ConflictsList {
   }
 
   render() {
+    const connectionOptions = this.connections
+      .map(conn => `<option value="${conn.id}" ${this.sourceId === conn.id ? 'selected' : ''}>${this.escapeHtml(conn.name)}</option>`)
+      .join('');
     const rows = this.conflicts.length
       ? this.conflicts.map(conflict => `
         <tr>
@@ -44,11 +60,20 @@ export class ConflictsList {
       <div class="conflicts-filters">
         <div class="form-row">
           <div class="form-group">
+            <label for="conflicts-source">Source</label>
+            <select id="conflicts-source">
+              ${connectionOptions}
+            </select>
+          </div>
+          <div class="form-group">
             <label for="conflicts-state">State</label>
             <select id="conflicts-state">
               <option value="">All</option>
               <option value="detected" ${this.stateFilter === 'detected' ? 'selected' : ''}>Detected</option>
               <option value="resolved" ${this.stateFilter === 'resolved' ? 'selected' : ''}>Resolved</option>
+              <option value="failed_resolution" ${this.stateFilter === 'failed_resolution' ? 'selected' : ''}>Failed Resolution</option>
+              <option value="needs_manual_review" ${this.stateFilter === 'needs_manual_review' ? 'selected' : ''}>Needs Manual Review</option>
+              <option value="applied" ${this.stateFilter === 'applied' ? 'selected' : ''}>Applied</option>
             </select>
           </div>
           <div class="form-group">
@@ -60,6 +85,9 @@ export class ConflictsList {
           </div>
           <div class="form-group">
             <button class="btn btn-secondary" id="conflicts-bulk-open">Bulk Resolve</button>
+          </div>
+          <div class="form-group">
+            <button class="btn btn-secondary" id="conflicts-clear">Clear Conflicts</button>
           </div>
         </div>
       </div>
@@ -85,8 +113,20 @@ export class ConflictsList {
     `;
   }
 
-  attachHandlers(onRefresh, onSelectConflict) {
-    document.getElementById('conflicts-apply')?.addEventListener('click', () => {
+  attachHandlers(onRefresh, onSelectConflict, onClear) {
+    document.getElementById('conflicts-source')?.addEventListener('change', async () => {
+      const sourceId = Number(document.getElementById('conflicts-source')?.value) || null;
+      if (sourceId) {
+        this.sourceId = sourceId;
+        onRefresh();
+      }
+    });
+
+    document.getElementById('conflicts-apply')?.addEventListener('click', async () => {
+      const sourceId = Number(document.getElementById('conflicts-source')?.value) || null;
+      if (sourceId && sourceId !== this.sourceId) {
+        this.sourceId = sourceId;
+      }
       this.stateFilter = document.getElementById('conflicts-state').value;
       this.modelFilter = document.getElementById('conflicts-model').value.trim();
       this.cursor = null;
@@ -97,6 +137,12 @@ export class ConflictsList {
       if (this.nextCursor) {
         this.cursor = this.nextCursor;
         onRefresh();
+      }
+    });
+
+    document.getElementById('conflicts-clear')?.addEventListener('click', () => {
+      if (onClear) {
+        onClear();
       }
     });
 

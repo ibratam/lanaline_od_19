@@ -13,14 +13,16 @@ export class PreviewDisplay {
   /**
    * Load and display preview
    */
-  async load(sourceDbId, targetDbId, modelFilter = null) {
+  async load(sourceDbId, targetDbId, modelFilter = null, companyId = null, sampleFlagValue = null) {
     try {
       this.showMessage('Generating preview...', 'info');
 
       const result = await apiClient.post('/sync/preview', {
         source_db_id: sourceDbId,
         target_db_id: targetDbId,
-        model_filter: modelFilter
+        model_filter: modelFilter,
+        company_id: companyId,
+        sample_flag_value: sampleFlagValue
       });
 
       this.preview = result;
@@ -41,6 +43,9 @@ export class PreviewDisplay {
 
     const { summary } = this.preview;
     const modelFilter = this.preview.model_filter;
+    const selection = this.preview.model_selection || {};
+    const missingOnSource = selection.missing_on_source || [];
+    const missingOnTarget = selection.missing_on_target || [];
 
     let html = `
       <div class="preview-summary card">
@@ -49,6 +54,7 @@ export class PreviewDisplay {
         <p>Models: ${modelFilter && modelFilter.length > 0
           ? modelFilter.map(model => this.escapeHtml(model)).join(', ')
           : 'All'}</p>
+        ${this.renderMissingModels(missingOnSource, missingOnTarget)}
 
         <div class="summary-stats flex">
           <div class="stat-card">
@@ -139,6 +145,34 @@ export class PreviewDisplay {
     return html;
   }
 
+  renderMissingModels(missingOnSource = [], missingOnTarget = []) {
+    const sourceList = missingOnSource
+      .map(model => this.escapeHtml(model))
+      .join(', ');
+    const targetList = missingOnTarget
+      .map(model => this.escapeHtml(model))
+      .join(', ');
+
+    if (!sourceList && !targetList) {
+      return '';
+    }
+
+    const sourceLine = sourceList
+      ? `<div><strong>Missing on source:</strong> ${sourceList}</div>`
+      : '';
+    const targetLine = targetList
+      ? `<div><strong>Missing on target:</strong> ${targetList}</div>`
+      : '';
+
+    return `
+      <div class="alert alert-warning">
+        <div><strong>Model precheck:</strong> Some selected models are not available on one side.</div>
+        ${sourceLine}
+        ${targetLine}
+      </div>
+    `;
+  }
+
   /**
    * Render conflicts section
    */
@@ -151,9 +185,15 @@ export class PreviewDisplay {
 
     for (const model of this.preview.models) {
       if (model.conflicts && model.conflicts.length > 0) {
+        const modelId = `model-conflicts-${model.model.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
         html += `
-          <div class="model-conflicts card mt-10">
-            <h4>${this.escapeHtml(model.model)}</h4>
+          <div class="model-conflicts card mt-10" id="${modelId}" data-model="${this.escapeHtml(model.model)}">
+            <div class="model-conflicts-header">
+              <h4>${this.escapeHtml(model.model)}</h4>
+              <button class="btn btn-small btn-success apply-model-btn" data-model="${this.escapeHtml(model.model)}">
+                Apply Selected
+              </button>
+            </div>
             <div class="conflicts-list">
         `;
 
@@ -198,7 +238,11 @@ export class PreviewDisplay {
                 </table>
                 <div class="conflict-resolution mt-10">
                   <label>Resolution:</label>
-                  <select class="conflict-resolution-select" data-conflict-id="${conflictId}">
+                  <select
+                    class="conflict-resolution-select"
+                    data-conflict-id="${conflictId}"
+                    data-conflict-db-id="${conflict.conflict_id || ''}"
+                  >
                     <option value="">-- Choose resolution --</option>
                     <option value="keep_source">Keep Source Version</option>
                     <option value="keep_target">Keep Target Version</option>
@@ -237,6 +281,68 @@ export class PreviewDisplay {
 
     // Expand/collapse conflicts
     container.addEventListener('click', (e) => {
+      if (e.target.classList.contains('apply-model-btn')) {
+        const model = e.target.dataset.model;
+        const modelId = `model-conflicts-${model.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        const section = document.getElementById(modelId);
+        if (!section) {
+          return;
+        }
+
+        const selects = section.querySelectorAll('.conflict-resolution-select');
+        const button = e.target;
+        button.disabled = true;
+        button.textContent = 'Applying...';
+
+        const applyPromises = [];
+        selects.forEach(select => {
+          const choice = select.value;
+          const conflictDbId = select.dataset.conflictDbId;
+          if (!choice || !conflictDbId || choice === 'skip') {
+            return;
+          }
+          const chosenVersion = choice === 'keep_source' ? 'local' : 'odoo';
+          applyPromises.push(
+            apiClient.resolveConflict(Number(conflictDbId), {
+              chosen_version: chosenVersion,
+              user_id: 1
+            }).catch(() => null).then(() => apiClient.applyConflict(Number(conflictDbId)))
+          );
+        });
+
+        Promise.allSettled(applyPromises).then(() => {
+          button.textContent = 'Applied';
+          setTimeout(() => {
+            button.textContent = 'Apply Selected';
+            button.disabled = false;
+          }, 1200);
+        }).catch(() => {
+          button.textContent = 'Apply Selected';
+          button.disabled = false;
+        });
+        return;
+      }
+
+      if (e.target.classList.contains('expand-conflicts-btn')) {
+        const model = e.target.dataset.model;
+        const modelId = `model-conflicts-${model.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+        const section = document.getElementById(modelId);
+        if (section) {
+          section.classList.add('highlight');
+          section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          const details = section.querySelectorAll('.conflict-details.hidden');
+          details.forEach(detail => {
+            detail.classList.remove('hidden');
+          });
+          const buttons = section.querySelectorAll('.toggle-conflict-btn');
+          buttons.forEach(button => {
+            button.textContent = 'Hide Details';
+          });
+          setTimeout(() => section.classList.remove('highlight'), 1200);
+        }
+        return;
+      }
+
       if (e.target.classList.contains('toggle-conflict-btn')) {
         const conflictId = e.target.dataset.conflictId;
         const element = document.getElementById(conflictId);

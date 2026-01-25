@@ -51,7 +51,8 @@ export function createScheduleRouter(db, services) {
       notification_email = null,
       notify_on_error = 1,
       notify_on_success = 0,
-      model_filter = null
+      model_filter = null,
+      company_id = null
     } = req.body;
 
     if (!source_db_id || !target_db_id || !name || !cron_expression) {
@@ -82,7 +83,8 @@ export function createScheduleRouter(db, services) {
       notification_email,
       notify_on_error,
       notify_on_success,
-      model_filter
+      model_filter,
+      company_id
     });
 
     const preview = includePreview(schedule);

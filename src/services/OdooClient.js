@@ -332,7 +332,7 @@ export class OdooClient {
           'search_read',
           [[]],
           {
-            fields: ['id', 'name', 'model'],
+            fields: ['id', 'name', 'model', 'modules'],
             limit: 1000
           }
         ],
@@ -342,6 +342,138 @@ export class OdooClient {
       return result || [];
     } catch (error) {
       logger.error('Error fetching models:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get list of installed modules
+   */
+  async getModules() {
+    try {
+      if (!this.authenticated) {
+        await this.authenticate();
+      }
+
+      logger.info('Fetching list of installed modules');
+
+      const result = await this.call('object.execute_kw', {
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          'ir.module.module',
+          'search_read',
+          [[['state', '=', 'installed']]],
+          {
+            fields: ['name', 'shortdesc'],
+            limit: 0
+          }
+        ],
+        kwargs: {}
+      });
+
+      return result || [];
+    } catch (error) {
+      logger.error('Error fetching modules:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get list of companies
+   */
+  async getCompanies() {
+    try {
+      if (!this.authenticated) {
+        await this.authenticate();
+      }
+
+      logger.info('Fetching list of companies');
+
+      const result = await this.call('object.execute_kw', {
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          'res.company',
+          'search_read',
+          [[]],
+          {
+            fields: ['id', 'name'],
+            limit: 0
+          }
+        ],
+        kwargs: {}
+      });
+
+      return result || [];
+    } catch (error) {
+      logger.error('Error fetching companies:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get list of installed models for a module name
+   */
+  async getModelsByModule(moduleName) {
+    try {
+      if (!this.authenticated) {
+        await this.authenticate();
+      }
+
+      const normalized = typeof moduleName === 'string' ? moduleName.trim() : '';
+      if (!normalized) {
+        return [];
+      }
+      const normalizedLower = normalized.toLowerCase();
+
+      logger.info(`Fetching models for module: ${normalized}`);
+
+      const dataResult = await this.call('object.execute_kw', {
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          'ir.model.data',
+          'search_read',
+          [[['module', '=', normalizedLower], ['model', '=', 'ir.model']]],
+          {
+            fields: ['res_id'],
+            limit: 0
+          }
+        ],
+        kwargs: {}
+      });
+
+      const ids = Array.from(new Set((dataResult || [])
+        .map(entry => entry?.res_id)
+        .filter(id => Number.isInteger(id) && id > 0)));
+
+      if (ids.length === 0) {
+        return [];
+      }
+
+      const modelResult = await this.call('object.execute_kw', {
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          'ir.model',
+          'search_read',
+          [[['id', 'in', ids]]],
+          {
+            fields: ['id', 'name', 'model'],
+            limit: 0
+          }
+        ],
+        kwargs: {}
+      });
+
+      return modelResult || [];
+    } catch (error) {
+      logger.error(`Error fetching models for module ${moduleName}:`, error);
       throw error;
     }
   }

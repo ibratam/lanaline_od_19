@@ -1,5 +1,6 @@
 import apiClient from '../services/apiClient.js';
 import ResolutionForm from './ResolutionForm.js';
+import ResolutionRetryPanel from './ResolutionRetryPanel.js';
 
 /**
  * Conflict Detail Component
@@ -9,6 +10,7 @@ export class ConflictDetail {
   constructor() {
     this.conflict = null;
     this.resolutionForm = new ResolutionForm();
+    this.retryPanel = new ResolutionRetryPanel();
   }
 
   async load(conflictId) {
@@ -21,9 +23,11 @@ export class ConflictDetail {
       return '<p class="text-muted">Select a conflict to view details.</p>';
     }
 
+    this.retryPanel.setConflict(this.conflict);
     const formHtml = this.conflict.state === 'detected'
       ? this.resolutionForm.render(this.conflict.id)
       : '';
+    const retryHtml = this.retryPanel.render();
 
     return `
       <div class="conflict-detail">
@@ -43,11 +47,12 @@ export class ConflictDetail {
           </div>
         </div>
         ${formHtml}
+        ${retryHtml}
       </div>
     `;
   }
 
-  attachHandlers(onResolve, onApply) {
+  attachHandlers(onResolve, onApply, onRetry) {
     const resolveButton = document.getElementById('resolve-submit');
     const applyButton = document.getElementById('resolve-apply');
 
@@ -62,6 +67,8 @@ export class ConflictDetail {
         onApply(this.conflict.id);
       }
     });
+
+    this.retryPanel.attachHandlers(onRetry);
   }
 
   escapeHtml(text) {

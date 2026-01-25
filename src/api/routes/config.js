@@ -164,6 +164,10 @@ export function createConfigRouter(db, services) {
   router.post('/:id/test', asyncHandler(async (req, res) => {
     const id = parseConnectionId(req.params.id);
     const result = await configManager.testConnection(id);
+    if (!result.success) {
+      res.status(result.status || 503).json(result);
+      return;
+    }
     res.json(result);
   }));
 
@@ -200,15 +204,15 @@ export function createConfigRouter(db, services) {
     try {
       const result = await testClient.testConnection();
 
-      if (!result.success && result.status === 401) {
-        res.status(401).json(result);
+      if (!result.success) {
+        res.status(result.status || 503).json(result);
         return;
       }
 
       res.json(result);
     } catch (error) {
       logger.warn(`Connection test failed: ${error.message}`);
-      res.json({
+      res.status(503).json({
         success: false,
         message: error.message
       });

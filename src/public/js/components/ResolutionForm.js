@@ -9,11 +9,11 @@ export class ResolutionForm {
         <h4>Resolve Conflict</h4>
         <label>
           <input type="radio" name="resolution-choice" value="local" checked>
-          Keep Local Version
+          Keep Source Version
         </label>
         <label>
           <input type="radio" name="resolution-choice" value="odoo">
-          Keep Odoo Version
+          Keep Target Version
         </label>
         <div class="btn-group">
           <button class="btn btn-primary" id="resolve-submit" data-id="${conflictId}">Resolve</button>

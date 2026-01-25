@@ -132,9 +132,37 @@ class APIClient {
     return this.post('/sync/rollback', data);
   }
 
+  async retrySync(data) {
+    return this.post('/sync/retry', data);
+  }
+
   async getSyncModels(sourceDbId) {
     const query = new URLSearchParams({ source_db_id: String(sourceDbId) });
     return this.get(`/sync/models?${query.toString()}`);
+  }
+
+  async getSyncModules(sourceDbId) {
+    const query = new URLSearchParams({ source_db_id: String(sourceDbId) });
+    return this.get(`/sync/modules?${query.toString()}`);
+  }
+
+  async getSyncModuleModels(sourceDbId, modules = []) {
+    const query = new URLSearchParams({
+      source_db_id: String(sourceDbId),
+      modules: modules.join(',')
+    });
+    return this.get(`/sync/module-models?${query.toString()}`);
+  }
+
+  async getSyncCompanies(sourceDbId) {
+    const query = new URLSearchParams({ source_db_id: String(sourceDbId) });
+    return this.get(`/sync/companies?${query.toString()}`);
+  }
+
+  async getSyncHistory(params = {}) {
+    const query = this.buildQuery(params);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return this.get(`/sync/history${suffix}`);
   }
 
   // Schedule endpoints
@@ -177,13 +205,21 @@ class APIClient {
 
   // Conflict endpoints
   async getConflicts(params = {}) {
-    const query = this.buildQuery(params);
+    const queryParams = { ...params };
+    if (Array.isArray(queryParams.models)) {
+      queryParams.models = queryParams.models.join(',');
+    }
+    const query = this.buildQuery(queryParams);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return this.get(`/conflicts${suffix}`);
   }
 
   async getConflict(id) {
     return this.get(`/conflicts/${id}`);
+  }
+
+  async clearConflicts(filters = {}) {
+    return this.post('/conflicts/clear', filters);
   }
 
   async lockConflict(id, data) {

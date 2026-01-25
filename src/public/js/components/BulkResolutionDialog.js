@@ -109,11 +109,11 @@ export class BulkResolutionDialog {
             <div class="bulk-action-options">
               <label>
                 <input type="radio" name="bulk-action" value="keep_local" ${this.rule.action === 'keep_local' ? 'checked' : ''}>
-                Keep Local
+                Keep Source
               </label>
               <label>
                 <input type="radio" name="bulk-action" value="keep_odoo" ${this.rule.action === 'keep_odoo' ? 'checked' : ''}>
-                Keep Odoo
+                Keep Target
               </label>
             </div>
           </div>

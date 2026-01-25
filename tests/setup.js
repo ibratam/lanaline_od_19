@@ -1,6 +1,7 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { jest as jestGlobal } from '@jest/globals';
 import { initializeDatabase } from '../src/db/init.js';
 import { createApp } from '../src/app.js';
 
@@ -11,6 +12,10 @@ const fixturesDir = path.join(__dirname, 'fixtures');
  * Setup test environment
  */
 export async function setupTests() {
+  if (!globalThis.jest) {
+    globalThis.jest = jestGlobal;
+  }
+
   // Create fixtures directory if it doesn't exist
   if (!fs.existsSync(fixturesDir)) {
     fs.mkdirSync(fixturesDir, { recursive: true });
@@ -56,6 +61,16 @@ export async function createTestApp() {
 
   // Create app
   const app = createApp(db);
+  const originalListen = app.listen.bind(app);
+  app.listen = (port, host, callback) => {
+    let resolvedHost = host;
+    let resolvedCallback = callback;
+    if (typeof resolvedHost === 'function') {
+      resolvedCallback = resolvedHost;
+      resolvedHost = undefined;
+    }
+    return originalListen(port, resolvedHost || '127.0.0.1', resolvedCallback);
+  };
 
   return { app, db };
 }

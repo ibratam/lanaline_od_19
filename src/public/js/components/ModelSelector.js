@@ -74,15 +74,15 @@ export class ModelSelector {
       return null;
     }
 
-    if (allCheckbox.checked) {
-      return null;
-    }
-
     const checkboxes = list.querySelectorAll('input[type="checkbox"]');
     const models = Array.from(checkboxes)
       .filter(box => box.checked)
       .map(box => box.value)
       .filter(Boolean);
+
+    if (allCheckbox.checked) {
+      return null;
+    }
 
     return models.length > 0 ? models : null;
   }

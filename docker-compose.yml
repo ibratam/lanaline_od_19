@@ -4,13 +4,13 @@ services:
   odoo-sync:
     build: .
     ports:
-      - "3000:3000"
+      - "5000:5000"
     environment:
       NODE_ENV: production
-      PORT: 3000
+      PORT: 5000
       HOST: 0.0.0.0
       LOG_LEVEL: info
-      MIDDLEWARE_SECRET_KEY: ${MIDDLEWARE_SECRET_KEY}
+      MIDDLEWARE_SECRET_KEY: 39a9f0c3ce28fe3b67f03ae6953c91fd
       DB_PATH: /app/data/middleware.db
     volumes:
       - ./data:/app/data

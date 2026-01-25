@@ -8,10 +8,17 @@ import {
 import ConflictResolver from '../../services/ConflictResolver.js';
 import RetryManager from '../../services/RetryManager.js';
 import BulkResolutionEngine from '../../services/BulkResolutionEngine.js';
+import ConflictFailureHandler from '../../services/ConflictFailureHandler.js';
 import ConflictLock from '../../models/ConflictLock.js';
 import ConflictResolution from '../../models/ConflictResolution.js';
 
-const STATE_MAP = new Set(['detected', 'resolved']);
+const STATE_MAP = new Set([
+  'detected',
+  'resolved',
+  'applied',
+  'failed_resolution',
+  'needs_manual_review'
+]);
 
 function parseIntParam(value, fallback) {
   const parsed = Number(value);
@@ -23,16 +30,16 @@ function normalizeConflict(conflict) {
   return {
     ...conflict,
     source_values: conflict.source_values ? JSON.parse(conflict.source_values) : null,
-    target_values: conflict.target_values ? JSON.parse(conflict.target_values) : null,
-    state: conflict.resolution ? 'resolved' : 'detected'
+    target_values: conflict.target_values ? JSON.parse(conflict.target_values) : null
   };
 }
 
-export function createConflictsRouter(db) {
+export function createConflictsRouter(db, services = {}) {
   const router = express.Router();
   const database = db.getDB();
-  const conflictResolver = new ConflictResolver(db);
+  const conflictResolver = new ConflictResolver(db, services);
   const retryManager = new RetryManager(conflictResolver);
+  const failureHandler = new ConflictFailureHandler(db, services.notificationService);
   const bulkResolutionEngine = new BulkResolutionEngine(db, conflictResolver);
   const lockModel = new ConflictLock(database);
   const resolutionModel = new ConflictResolution(database);
@@ -42,7 +49,7 @@ export function createConflictsRouter(db) {
    * Query parameters:
    *   - limit: Number of results per page (default: 25, max: 200)
    *   - cursor: Cursor for pagination (base64 encoded JSON: {id, created_at})
-   *   - state: Filter by state (detected|resolved)
+   *   - state: Filter by state (detected|resolved|applied|failed_resolution|needs_manual_review)
    *   - model: Filter by model name
    */
   router.get('/', asyncHandler(async (req, res) => {
@@ -50,9 +57,16 @@ export function createConflictsRouter(db) {
     const cursorParam = req.query.cursor || null;
     const state = req.query.state || null;
     const model = req.query.model || null;
+    const modelsParam = req.query.models || null;
+    const models = modelsParam
+      ? String(modelsParam)
+        .split(',')
+        .map(entry => entry.trim())
+        .filter(Boolean)
+      : [];
 
     if (state && !STATE_MAP.has(state)) {
-      throw new ValidationError('state must be detected or resolved');
+      throw new ValidationError('state must be detected, resolved, applied, failed_resolution, or needs_manual_review');
     }
 
     // Parse cursor if provided (format: base64 encoded {id, created_at})
@@ -72,15 +86,18 @@ export function createConflictsRouter(db) {
     const params = [];
     let sql = 'SELECT * FROM sync_conflicts WHERE 1=1';
 
-    if (model) {
+    if (models.length > 0) {
+      const placeholders = models.map(() => '?').join(', ');
+      sql += ` AND odoo_model IN (${placeholders})`;
+      params.push(...models);
+    } else if (model) {
       sql += ' AND odoo_model = ?';
       params.push(model);
     }
 
-    if (state === 'detected') {
-      sql += ' AND resolution IS NULL';
-    } else if (state === 'resolved') {
-      sql += ' AND resolution IS NOT NULL';
+    if (state) {
+      sql += ' AND state = ?';
+      params.push(state);
     }
 
     // Cursor-based pagination: fetch by created_at then id for stability with inserts
@@ -120,6 +137,55 @@ export function createConflictsRouter(db) {
     });
   }));
 
+  router.post('/clear', asyncHandler(async (req, res) => {
+    const { state, model, models } = req.body || {};
+    const modelList = Array.isArray(models)
+      ? models.filter(Boolean)
+      : (models ? String(models).split(',').map(entry => entry.trim()).filter(Boolean) : []);
+
+    if (state && !STATE_MAP.has(state)) {
+      throw new ValidationError('state must be detected, resolved, applied, failed_resolution, or needs_manual_review');
+    }
+
+    const params = [];
+    let sql = 'SELECT id FROM sync_conflicts WHERE 1=1';
+
+    if (modelList.length > 0) {
+      const placeholders = modelList.map(() => '?').join(', ');
+      sql += ` AND odoo_model IN (${placeholders})`;
+      params.push(...modelList);
+    } else if (model) {
+      sql += ' AND odoo_model = ?';
+      params.push(model);
+    }
+
+    if (state) {
+      sql += ' AND state = ?';
+      params.push(state);
+    }
+
+    const ids = database.prepare(sql).all(...params).map(row => row.id);
+    if (ids.length === 0) {
+      res.json({ deleted_count: 0 });
+      return;
+    }
+
+    const idPlaceholders = ids.map(() => '?').join(', ');
+
+    try {
+      database.exec('BEGIN');
+      database.prepare(`DELETE FROM retry_history WHERE conflict_id IN (${idPlaceholders})`).run(...ids);
+      database.prepare(`DELETE FROM conflict_resolutions WHERE conflict_id IN (${idPlaceholders})`).run(...ids);
+      database.prepare(`DELETE FROM conflict_locks WHERE conflict_id IN (${idPlaceholders})`).run(...ids);
+      const result = database.prepare(`DELETE FROM sync_conflicts WHERE id IN (${idPlaceholders})`).run(...ids);
+      database.exec('COMMIT');
+      res.json({ deleted_count: result.changes || 0 });
+    } catch (error) {
+      database.exec('ROLLBACK');
+      throw error;
+    }
+  }));
+
   router.get('/:id', asyncHandler(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) {
@@ -131,7 +197,20 @@ export function createConflictsRouter(db) {
       throw new NotFoundError(`Conflict ${id} not found`);
     }
 
-    res.json(normalizeConflict(conflict));
+    const resolution = resolutionModel.getByConflictId(id);
+    const retryHistory = database.prepare(`
+      SELECT * FROM retry_history
+      WHERE conflict_id = ?
+      ORDER BY created_at DESC
+      LIMIT 5
+    `).all(id);
+
+    res.json({
+      ...normalizeConflict(conflict),
+      resolution,
+      retry_history: retryHistory,
+      suggested_action: failureHandler.getSuggestedAction(resolution)
+    });
   }));
 
   router.post('/:id/lock', asyncHandler(async (req, res) => {
@@ -187,16 +266,18 @@ export function createConflictsRouter(db) {
       throw new ValidationError('Invalid conflict id');
     }
 
+    const { simulate_error } = req.body || {};
     res.status(202).json({ status: 'applying' });
 
-    setImmediate(() => {
+    setImmediate(async () => {
       try {
-        conflictResolver.apply(id);
+        if (process.env.NODE_ENV === 'test' && simulate_error) {
+          throw new Error('Simulated conflict apply failure');
+        }
+        await conflictResolver.apply(id);
       } catch (error) {
-        // update resolution with last error category if available
         try {
-          const category = conflictResolver._categorizeError(error);
-          resolutionModel.updateError(id, error.message, category);
+          failureHandler.handleApplyFailure(id, error);
         } catch {
           // ignore update errors
         }
@@ -210,15 +291,19 @@ export function createConflictsRouter(db) {
       throw new ValidationError('Invalid conflict id');
     }
 
+    const { simulate_error } = req.body || {};
     res.status(202).json({ status: 'retrying' });
 
     setImmediate(async () => {
       try {
+        conflictResolver.reopenForRetry(id);
+        if (process.env.NODE_ENV === 'test' && simulate_error) {
+          throw new Error('Simulated conflict retry failure');
+        }
         await retryManager.applyWithRetry(id, 3);
       } catch (error) {
         try {
-          const category = retryManager._categorizeError(error);
-          resolutionModel.updateError(id, error.message, category);
+          failureHandler.handleApplyFailure(id, error);
         } catch {
           // ignore update errors
         }
@@ -245,7 +330,7 @@ export function createConflictsRouter(db) {
         return;
       }
 
-      const result = bulkResolutionEngine.apply(rule);
+      const result = await bulkResolutionEngine.apply(rule);
       res.json({
         dry_run: false,
         rule,

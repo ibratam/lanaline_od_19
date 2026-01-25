@@ -121,13 +121,13 @@ export const BulkResolutionDialogRenderProps = {
     options: [
       {
         value: 'keep_local',
-        label: 'Keep All Local Versions',
-        description: 'Use local database values for all conflicts'
+        label: 'Keep All Source Versions',
+        description: 'Use source database values for all conflicts'
       },
       {
         value: 'keep_odoo',
-        label: 'Keep All Odoo Versions',
-        description: 'Use Odoo values for all conflicts'
+        label: 'Keep All Target Versions',
+        description: 'Use target database values for all conflicts'
       }
     ]
   },
