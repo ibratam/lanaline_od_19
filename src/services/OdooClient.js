@@ -12,70 +12,142 @@ export class OdooClient {
     this.password = password;
     this.uid = null;
     this.authenticated = false;
+    this.sessionCookie = null;
   }
 
   /**
-   * Make JSON-RPC call to Odoo
+   * Make JSON-RPC call to Odoo (Odoo 19 external API)
    */
   async call(method, params = {}) {
+    const timeoutMs = Number(process.env.ODOO_RPC_TIMEOUT_MS) || 30000;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     try {
-      const rpcPath = `${this.url}/jsonrpc`;
-
-      const args = Array.isArray(params?.args) ? params.args : [];
-      const kwargs = params?.kwargs && typeof params.kwargs === 'object' ? params.kwargs : params;
-      const payload = {
-        jsonrpc: '2.0',
-        method: 'call',
-        params: {
-          service: method.split('.')[0],
-          method: method.split('.')[1] || method,
-          args,
-          kwargs
-        },
-        id: Math.floor(Math.random() * 1000000)
-      };
-
-      const response = await fetch(rpcPath, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload),
-        timeout: 30000
-      });
-
-      if (!response.ok) {
-        const httpError = new Error(`HTTP ${response.status}: ${response.statusText}`);
-        httpError.name = 'OdooHttpError';
-        httpError.code = 'ODOO_HTTP_ERROR';
-        httpError.statusCode = response.status;
-        httpError.details = {
-          status: response.status,
-          statusText: response.statusText,
-          url: this.url
-        };
-        throw httpError;
+      if (method === 'common.authenticate' || method === 'web.session.authenticate') {
+        return await this.callWebSessionAuthenticate(params, controller.signal);
       }
 
-      const data = await response.json();
-
-      if (data.error) {
-        const details = {
-          code: data.error.code,
-          message: data.error.message,
-          data: data.error.data
-        };
-        const rpcError = new Error(`Odoo RPC Error: ${details.message || 'Unknown error'}`);
-        rpcError.name = 'OdooRpcError';
-        rpcError.code = 'ODOO_RPC_ERROR';
-        rpcError.details = details;
-        throw rpcError;
+      if (method === 'object.execute_kw') {
+        return await this.callWebDataset(params, controller.signal);
       }
 
-      return data.result;
+      const error = new Error(`Unsupported Odoo method: ${method}`);
+      error.name = 'OdooClientError';
+      error.code = 'ODOO_METHOD_UNSUPPORTED';
+      throw error;
     } catch (error) {
       logger.error('Odoo RPC call error:', { method, url: this.url, error: error.message });
       throw error;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async callWebSessionAuthenticate(params = {}, signal) {
+    const payload = {
+      jsonrpc: '2.0',
+      method: 'call',
+      params: {},
+      id: Math.floor(Math.random() * 1000000)
+    };
+
+    if (Array.isArray(params?.args) && params.args.length >= 3) {
+      payload.params.db = params.args[0];
+      payload.params.login = params.args[1];
+      payload.params.password = params.args[2];
+    } else {
+      payload.params.db = params.db ?? this.database;
+      payload.params.login = params.login ?? this.username;
+      payload.params.password = params.password ?? this.password;
+    }
+
+    const response = await fetch(`${this.url}/web/session/authenticate`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload),
+      signal
+    });
+
+    await this.throwOnHttpError(response);
+    const data = await response.json();
+    this.throwOnRpcError(data);
+    const sessionCookie = response.headers.get('set-cookie');
+    if (sessionCookie) {
+      this.sessionCookie = sessionCookie.split(';')[0];
+    }
+    return data.result;
+  }
+
+  async callWebDataset(params = {}, signal) {
+    const args = Array.isArray(params?.args) ? params.args : [];
+    const kwargs = params?.kwargs && typeof params.kwargs === 'object' ? params.kwargs : {};
+    const model = args[3];
+    const method = args[4];
+    const methodArgs = Array.isArray(args[5]) ? args[5] : [];
+    const methodKwargs = (args[6] && typeof args[6] === 'object') ? args[6] : kwargs;
+
+    const payload = {
+      jsonrpc: '2.0',
+      method: 'call',
+      params: {
+        model,
+        method,
+        args: methodArgs,
+        kwargs: methodKwargs
+      },
+      id: Math.floor(Math.random() * 1000000)
+    };
+
+    const headers = {
+      'Content-Type': 'application/json'
+    };
+    if (this.sessionCookie) {
+      headers.Cookie = this.sessionCookie;
+    }
+
+    const response = await fetch(`${this.url}/web/dataset/call_kw`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal
+    });
+
+    await this.throwOnHttpError(response);
+    const data = await response.json();
+    this.throwOnRpcError(data);
+    return data.result;
+  }
+
+  async throwOnHttpError(response) {
+    if (!response.ok) {
+      const httpError = new Error(`HTTP ${response.status}: ${response.statusText}`);
+      httpError.name = 'OdooHttpError';
+      httpError.code = 'ODOO_HTTP_ERROR';
+      httpError.statusCode = response.status;
+      httpError.details = {
+        status: response.status,
+        statusText: response.statusText,
+        url: this.url
+      };
+      throw httpError;
+    }
+  }
+
+  throwOnRpcError(data) {
+    if (data?.error) {
+      const details = {
+        code: data.error.code,
+        message: data.error.message,
+        data: data.error.data
+      };
+      const rpcError = new Error(`Odoo RPC Error: ${details.message || 'Unknown error'}`);
+      rpcError.name = 'OdooRpcError';
+      rpcError.code = 'ODOO_RPC_ERROR';
+      rpcError.details = details;
+      throw rpcError;
     }
   }
 
@@ -86,24 +158,13 @@ export class OdooClient {
     try {
       logger.info(`Authenticating with Odoo: ${this.url} (database: ${this.database})`);
 
-      let uid;
-      try {
-        uid = await this.call('common.authenticate', {
-          args: [this.database, this.username, this.password, {}],
-          kwargs: {}
-        });
-      } catch (error) {
-        if (error?.name === 'OdooRpcError' && String(error.details?.message || '').includes('KeyError')) {
-          uid = await this.call('web.session.authenticate', {
-            db: this.database,
-            login: this.username,
-            password: this.password
-          });
-        } else {
-          throw error;
-        }
-      }
+      const authResult = await this.call('web.session.authenticate', {
+        db: this.database,
+        login: this.username,
+        password: this.password
+      });
 
+      const uid = authResult?.uid ?? authResult;
       if (!uid || uid === false) {
         const authError = new Error('Authentication failed: Invalid credentials');
         authError.name = 'OdooAuthError';
@@ -185,26 +246,55 @@ export class OdooClient {
         await this.authenticate();
       }
 
+      if (!ids || (Array.isArray(ids) && ids.length === 0)) {
+        return [];
+      }
+
       if (!Array.isArray(ids)) {
         ids = [ids];
       }
 
+      const batchSize = Math.max(1, Number(process.env.ODOO_READ_BATCH_SIZE) || 1000);
       logger.debug(`Reading ${model} records: ${ids.length} records, ${fields.length} fields`);
 
-      const result = await this.call('object.execute_kw', {
-        args: [
-          this.database,
-          this.uid,
-          this.password,
-          model,
-          'read',
-          [ids, fields || []],
-          {}
-        ],
-        kwargs: {}
-      });
+      if (ids.length <= batchSize) {
+        const result = await this.call('object.execute_kw', {
+          args: [
+            this.database,
+            this.uid,
+            this.password,
+            model,
+            'read',
+            [ids, fields || []],
+            {}
+          ],
+          kwargs: {}
+        });
 
-      return result || [];
+        return result || [];
+      }
+
+      const results = [];
+      for (let i = 0; i < ids.length; i += batchSize) {
+        const batchIds = ids.slice(i, i + batchSize);
+        const batch = await this.call('object.execute_kw', {
+          args: [
+            this.database,
+            this.uid,
+            this.password,
+            model,
+            'read',
+            [batchIds, fields || []],
+            {}
+          ],
+          kwargs: {}
+        });
+        if (Array.isArray(batch) && batch.length > 0) {
+          results.push(...batch);
+        }
+      }
+
+      return results;
     } catch (error) {
       logger.error(`Error reading ${model} records:`, error);
       throw error;
@@ -540,6 +630,7 @@ export class OdooClient {
     logger.info('Closing Odoo connection');
     this.authenticated = false;
     this.uid = null;
+    this.sessionCookie = null;
   }
 
   

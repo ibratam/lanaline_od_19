@@ -60,7 +60,7 @@ export class SyncEngine {
     this.odooClient = odooClient;
     this.conflictDetector = new ConflictDetector();
     this.modelFieldCache = new Map();
-    this.modelFieldNames = new Map();
+    this.modelFieldNames = new WeakMap();
     // Hard-disable deletes to prevent destructive operations.
     this.disableDeletes = true;
     const extraExcluded = Array.isArray(options.excludedModels) ? options.excludedModels : [];
@@ -719,6 +719,8 @@ export class SyncEngine {
         }
       }
 
+      const comparisonFields = await this.getComparisonFields(sourceClient, targetClient, model);
+
       // Get all records from source
       const sourceRecords = await sourceClient.search(model, sourceDomain, 0, 0);
       logger.debug(`Source: ${sourceRecords.length} records in ${model}`);
@@ -729,15 +731,16 @@ export class SyncEngine {
 
       // Get full record data
       const sourceData = sourceRecords.length > 0 ?
-        await sourceClient.read(model, sourceRecords, []) : [];
+        await sourceClient.read(model, sourceRecords, comparisonFields) : [];
       const targetData = targetRecords.length > 0 ?
-        await targetClient.read(model, targetRecords, []) : [];
+        await targetClient.read(model, targetRecords, comparisonFields) : [];
 
       // Convert to maps for easier lookup
       const sourceMap = new Map(sourceData.map(r => [r.id, r]));
       const targetMap = new Map(targetData.map(r => [r.id, r]));
       const targetKeyMap = this.buildTargetKeyMap(model, targetData);
       const matchedTargetIds = new Set();
+      const processedTargetIds = new Set();
 
       const comparison = {
         model,
@@ -826,6 +829,10 @@ export class SyncEngine {
         }
         if (targetRecord) {
           matchedTargetIds.add(targetId);
+          if (processedTargetIds.has(targetId)) {
+            continue;
+          }
+          processedTargetIds.add(targetId);
           // Compare records for differences
           const diff = this.compareRecords(sourceRecord, targetRecord);
           if (diff.hasDifferences) {
@@ -1596,14 +1603,95 @@ export class SyncEngine {
   }
 
   async getModelFieldNames(targetClient, model) {
-    if (this.modelFieldNames.has(model)) {
-      return this.modelFieldNames.get(model);
+    if (!targetClient) {
+      return new Set();
+    }
+
+    let clientCache = this.modelFieldNames.get(targetClient);
+    if (!clientCache) {
+      clientCache = new Map();
+      this.modelFieldNames.set(targetClient, clientCache);
+    }
+
+    if (clientCache.has(model)) {
+      return clientCache.get(model);
     }
 
     const fields = await targetClient.getModelFields(model);
     const names = new Set(Object.keys(fields || {}));
-    this.modelFieldNames.set(model, names);
+    clientCache.set(model, names);
     return names;
+  }
+
+  getBusinessKeyFieldNames(model) {
+    switch (model) {
+      case 'product.template':
+        return ['barcode', 'default_code', 'name'];
+      case 'product.product':
+        return ['barcode', 'default_code', 'product_tmpl_id', 'combination_indices'];
+      case 'res.partner':
+        return ['email', 'vat', 'ref', 'name'];
+      case 'sale.order':
+      case 'pos.order':
+      case 'pos.config':
+      case 'res.partner.category':
+      case 'res.partner.industry':
+      case 'res.partner.title':
+        return ['name'];
+      case 'pos.session':
+        return ['name', 'config_id'];
+      case 'res.users':
+        return ['login', 'email', 'name'];
+      case 'res.country':
+        return ['code', 'name'];
+      case 'res.country.state':
+        return ['code', 'name', 'country_id'];
+      default:
+        return ['name'];
+    }
+  }
+
+  async getComparisonFields(sourceClient, targetClient, model) {
+    if (!sourceClient || !targetClient) {
+      return [];
+    }
+
+    try {
+      const [sourceFieldNames, targetFieldNames] = await Promise.all([
+        this.getModelFieldNames(sourceClient, model),
+        this.getModelFieldNames(targetClient, model)
+      ]);
+
+      const writableFields = await this.getWritableFields(targetClient, model);
+      const fields = new Set([
+        'id',
+        'create_date',
+        'write_date',
+        '__last_update'
+      ]);
+
+      if (writableFields) {
+        for (const field of writableFields) {
+          fields.add(field);
+        }
+      }
+
+      for (const field of this.getBusinessKeyFieldNames(model)) {
+        fields.add(field);
+      }
+
+      const intersection = [];
+      for (const field of fields) {
+        if (sourceFieldNames.has(field) && targetFieldNames.has(field)) {
+          intersection.push(field);
+        }
+      }
+
+      return intersection;
+    } catch (error) {
+      logger.warn(`Failed to determine comparison fields for ${model}: ${error.message}`);
+      return [];
+    }
   }
 
   async getModelDomain(client, model, companyId) {
