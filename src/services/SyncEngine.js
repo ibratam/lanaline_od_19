@@ -712,28 +712,39 @@ export class SyncEngine {
 
       const sourceDomain = await this.getModelDomain(sourceClient, model, companyId);
       const targetDomain = await this.getModelDomain(targetClient, model, companyId);
-      if (incrementalSince) {
+      const comparisonFields = await this.getComparisonFields(sourceClient, targetClient, model);
+
+      const useWindowedIncremental = await this.shouldUseWindowedIncremental(sourceClient, model, incrementalSince);
+      if (!useWindowedIncremental && incrementalSince) {
         const sourceFieldNames = await this.getModelFieldNames(sourceClient, model);
         if (sourceFieldNames.has('write_date')) {
           sourceDomain.push(['write_date', '>', incrementalSince]);
         }
       }
 
-      const comparisonFields = await this.getComparisonFields(sourceClient, targetClient, model);
+      // Get full record data with paging to reduce memory and RPC payloads
+      const sourceData = useWindowedIncremental
+        ? await this.fetchWindowedRecords(sourceClient, model, sourceDomain, comparisonFields, incrementalSince)
+        : await sourceClient.searchReadAll(model, sourceDomain, comparisonFields);
+      logger.debug(`Source: ${sourceData.length} records in ${model}`);
 
-      // Get all records from source
-      const sourceRecords = await sourceClient.search(model, sourceDomain, 0, 0);
-      logger.debug(`Source: ${sourceRecords.length} records in ${model}`);
-
-      // Get all records from target
-      const targetRecords = await targetClient.search(model, targetDomain, 0, 0);
-      logger.debug(`Target: ${targetRecords.length} records in ${model}`);
-
-      // Get full record data
-      const sourceData = sourceRecords.length > 0 ?
-        await sourceClient.read(model, sourceRecords, comparisonFields) : [];
-      const targetData = targetRecords.length > 0 ?
-        await targetClient.read(model, targetRecords, comparisonFields) : [];
+      let targetData = [];
+      if (incrementalSince) {
+        const targetMode = String(process.env.ODOO_INCREMENTAL_TARGET_MODE || 'full').toLowerCase();
+        if (targetMode === 'ids') {
+          const sourceIds = sourceData.map(record => record.id).filter(id => Number.isInteger(id) && id > 0);
+          targetData = sourceIds.length > 0
+            ? await targetClient.read(model, sourceIds, comparisonFields)
+            : [];
+        } else if (targetMode === 'window') {
+          targetData = await this.fetchWindowedRecords(targetClient, model, targetDomain, comparisonFields, incrementalSince);
+        } else {
+          targetData = await targetClient.searchReadAll(model, targetDomain, comparisonFields);
+        }
+      } else {
+        targetData = await targetClient.searchReadAll(model, targetDomain, comparisonFields);
+      }
+      logger.debug(`Target: ${targetData.length} records in ${model}`);
 
       // Convert to maps for easier lookup
       const sourceMap = new Map(sourceData.map(r => [r.id, r]));
@@ -750,51 +761,7 @@ export class SyncEngine {
         conflicts: []
       };
 
-      // Find records to create (in source but not in target)
-      for (const [id, sourceRecord] of sourceMap) {
-        let targetRecord = null;
-        let targetId = null;
-
-        if (mappingContext) {
-          const mappedId = this.getMappedTargetId(mappingContext, model, id);
-          if (mappedId) {
-            targetRecord = targetMap.get(mappedId) || null;
-            targetId = targetRecord?.id || null;
-            if (targetRecord && writeMappings) {
-              this.storeIdMapping(mappingContext, model, id, targetRecord.id);
-            }
-          }
-        }
-        if (!targetRecord) {
-          const targetMatch = this.findTargetByBusinessKey(model, sourceRecord, targetKeyMap);
-          if (targetMatch) {
-            targetRecord = targetMatch;
-            targetId = targetMatch.id;
-            if (mappingContext && writeMappings) {
-              this.storeIdMapping(mappingContext, model, id, targetMatch.id);
-            }
-          }
-        }
-        if (!targetRecord) {
-          targetRecord = targetMap.get(id) || null;
-          targetId = targetRecord?.id || null;
-          if (targetRecord && mappingContext && writeMappings) {
-            this.storeIdMapping(mappingContext, model, id, targetRecord.id);
-          }
-        }
-
-        if (!targetRecord) {
-          comparison.to_create.records.push({
-            id,
-            data: sourceRecord
-          });
-          comparison.to_create.count++;
-        } else {
-          matchedTargetIds.add(targetId);
-        }
-      }
-
-      // Find records to update or conflicts
+      // Find records to create / update / conflicts in a single pass
       for (const [id, sourceRecord] of sourceMap) {
         let targetRecord = null;
         let targetId = null;
@@ -827,6 +794,15 @@ export class SyncEngine {
             this.storeIdMapping(mappingContext, model, id, targetRecord.id);
           }
         }
+        if (!targetRecord) {
+          comparison.to_create.records.push({
+            id,
+            data: sourceRecord
+          });
+          comparison.to_create.count++;
+          continue;
+        }
+
         if (targetRecord) {
           matchedTargetIds.add(targetId);
           if (processedTargetIds.has(targetId)) {
@@ -1670,14 +1646,28 @@ export class SyncEngine {
         '__last_update'
       ]);
 
+      let allowedFields = null;
+      if (model === 'res.partner' && process.env.ODOO_RES_PARTNER_FIELDS) {
+        allowedFields = new Set(
+          String(process.env.ODOO_RES_PARTNER_FIELDS)
+            .split(',')
+            .map(field => field.trim())
+            .filter(Boolean)
+        );
+      }
+
       if (writableFields) {
         for (const field of writableFields) {
-          fields.add(field);
+          if (!allowedFields || allowedFields.has(field)) {
+            fields.add(field);
+          }
         }
       }
 
       for (const field of this.getBusinessKeyFieldNames(model)) {
-        fields.add(field);
+        if (!allowedFields || allowedFields.has(field)) {
+          fields.add(field);
+        }
       }
 
       const intersection = [];
@@ -1692,6 +1682,51 @@ export class SyncEngine {
       logger.warn(`Failed to determine comparison fields for ${model}: ${error.message}`);
       return [];
     }
+  }
+
+  async shouldUseWindowedIncremental(client, model, incrementalSince) {
+    if (!client || !incrementalSince) {
+      return false;
+    }
+    const windowMinutes = Number(process.env.ODOO_WRITE_DATE_WINDOW_MINUTES);
+    if (!Number.isFinite(windowMinutes) || windowMinutes <= 0) {
+      return false;
+    }
+    const fieldNames = await this.getModelFieldNames(client, model);
+    return fieldNames.has('write_date');
+  }
+
+  async fetchWindowedRecords(client, model, baseDomain, fields, incrementalSince) {
+    const windowMinutes = Number(process.env.ODOO_WRITE_DATE_WINDOW_MINUTES);
+    if (!Number.isFinite(windowMinutes) || windowMinutes <= 0) {
+      return client.searchReadAll(model, baseDomain, fields);
+    }
+
+    const start = new Date(incrementalSince);
+    if (Number.isNaN(start.getTime())) {
+      return client.searchReadAll(model, baseDomain, fields);
+    }
+
+    const end = new Date();
+    const windowMs = windowMinutes * 60 * 1000;
+    const records = [];
+    let cursor = new Date(start);
+
+    while (cursor.getTime() < end.getTime()) {
+      const windowEnd = new Date(Math.min(cursor.getTime() + windowMs, end.getTime()));
+      const domain = [
+        ...baseDomain,
+        ['write_date', '>=', this.formatOdooDatetime(cursor)],
+        ['write_date', '<', this.formatOdooDatetime(windowEnd)]
+      ];
+      const batch = await client.searchReadAll(model, domain, fields);
+      if (Array.isArray(batch) && batch.length > 0) {
+        records.push(...batch);
+      }
+      cursor = windowEnd;
+    }
+
+    return records;
   }
 
   async getModelDomain(client, model, companyId) {

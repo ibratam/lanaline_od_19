@@ -158,25 +158,50 @@ export class OdooClient {
     try {
       logger.info(`Authenticating with Odoo: ${this.url} (database: ${this.database})`);
 
-      const authResult = await this.call('web.session.authenticate', {
-        db: this.database,
-        login: this.username,
-        password: this.password
-      });
+      const maxRetries = Math.max(0, Number(process.env.ODOO_AUTH_RETRY) || 3);
+      const baseDelayMs = Math.max(0, Number(process.env.ODOO_AUTH_RETRY_DELAY_MS) || 500);
 
-      const uid = authResult?.uid ?? authResult;
-      if (!uid || uid === false) {
-        const authError = new Error('Authentication failed: Invalid credentials');
-        authError.name = 'OdooAuthError';
-        authError.code = 'ODOO_AUTH_FAILED';
-        authError.statusCode = 401;
-        throw authError;
+      let lastError = null;
+      for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+        try {
+          const authResult = await this.call('web.session.authenticate', {
+            db: this.database,
+            login: this.username,
+            password: this.password
+          });
+
+          const uid = authResult?.uid ?? authResult;
+          if (!uid || uid === false) {
+            const authError = new Error('Authentication failed: Invalid credentials');
+            authError.name = 'OdooAuthError';
+            authError.code = 'ODOO_AUTH_FAILED';
+            authError.statusCode = 401;
+            throw authError;
+          }
+
+          this.uid = uid;
+          this.authenticated = true;
+          logger.info(`Authenticated successfully with UID: ${uid}`);
+          return true;
+        } catch (error) {
+          lastError = error;
+          if (!this.isSerializationFailure(error)) {
+            throw error;
+          }
+          if (attempt >= maxRetries) {
+            throw error;
+          }
+          const delayMs = baseDelayMs * Math.pow(2, attempt);
+          logger.warn(`Auth serialization failure, retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries + 1})`);
+          await this.delay(delayMs);
+        }
       }
 
-      this.uid = uid;
-      this.authenticated = true;
-      logger.info(`Authenticated successfully with UID: ${uid}`);
-      return true;
+      if (lastError) {
+        throw lastError;
+      }
+
+      return false;
     } catch (error) {
       if (error?.name === 'OdooRpcError') {
         const errorName = String(error.details?.data?.name || '').toLowerCase();
@@ -196,6 +221,14 @@ export class OdooClient {
       this.authenticated = false;
       throw error;
     }
+  }
+
+  isSerializationFailure(error) {
+    const message = error?.details?.data?.message
+      || error?.details?.data?.arguments?.[0]
+      || error?.message
+      || '';
+    return /could not serialize access due to concurrent update/i.test(String(message));
   }
 
   /**
@@ -233,6 +266,127 @@ export class OdooClient {
       return result || [];
     } catch (error) {
       logger.error(`Error searching ${model}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Count records in a model
+   */
+  async searchCount(model, domain = []) {
+    try {
+      if (!this.authenticated) {
+        await this.authenticate();
+      }
+
+      const result = await this.call('object.execute_kw', {
+        args: [
+          this.database,
+          this.uid,
+          this.password,
+          model,
+          'search_count',
+          [domain]
+        ],
+        kwargs: {}
+      });
+
+      return Number(result) || 0;
+    } catch (error) {
+      logger.error(`Error counting ${model}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Search and read records in pages
+   */
+  async searchReadAll(model, domain = [], fields = [], modelFilter = null) {
+    try {
+      if (!this.authenticated) {
+        await this.authenticate();
+      }
+
+      if (Array.isArray(modelFilter) && modelFilter.length > 0 && !modelFilter.includes(model)) {
+        return [];
+      }
+
+      const batchSize = Math.max(1, Number(process.env.ODOO_SEARCH_READ_BATCH_SIZE)
+        || Number(process.env.ODOO_READ_BATCH_SIZE)
+        || 1000);
+      const concurrency = Math.max(1, Number(process.env.ODOO_READ_CONCURRENCY) || 2);
+      const normalizedFields = Array.isArray(fields) ? fields : [];
+      const fieldSet = new Set(normalizedFields);
+      fieldSet.add('id');
+      const fieldList = Array.from(fieldSet);
+
+      const fetchPage = async (offset) => {
+        return this.call('object.execute_kw', {
+          args: [
+            this.database,
+            this.uid,
+            this.password,
+            model,
+            'search_read',
+            [domain],
+            {
+              fields: fieldList,
+              offset,
+              limit: batchSize,
+              order: 'id'
+            }
+          ],
+          kwargs: {}
+        });
+      };
+
+      const total = await this.searchCount(model, domain);
+      if (total === 0) {
+        return [];
+      }
+
+      const totalPages = Math.ceil(total / batchSize);
+      if (totalPages === 1 || concurrency <= 1) {
+        const results = [];
+        let offset = 0;
+        while (true) {
+          const batch = await fetchPage(offset);
+          if (Array.isArray(batch) && batch.length > 0) {
+            results.push(...batch);
+          }
+          if (!batch || batch.length < batchSize) {
+            break;
+          }
+          offset += batchSize;
+        }
+        return results;
+      }
+
+      const offsets = Array.from({ length: totalPages }, (_, idx) => idx * batchSize);
+      const results = [];
+      let cursor = 0;
+
+      const worker = async () => {
+        while (true) {
+          const index = cursor;
+          cursor += 1;
+          if (index >= offsets.length) {
+            break;
+          }
+          const offset = offsets[index];
+          const batch = await fetchPage(offset);
+          if (Array.isArray(batch) && batch.length > 0) {
+            results.push(...batch);
+          }
+        }
+      };
+
+      const workerCount = Math.min(concurrency, offsets.length);
+      await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+      return results;
+    } catch (error) {
+      logger.error(`Error search_read ${model}:`, error);
       throw error;
     }
   }
@@ -631,6 +785,10 @@ export class OdooClient {
     this.authenticated = false;
     this.uid = null;
     this.sessionCookie = null;
+  }
+
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   

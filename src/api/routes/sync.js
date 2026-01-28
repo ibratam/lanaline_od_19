@@ -318,6 +318,26 @@ export function createSyncRouter(db, services) {
 
         for (const modelComparison of preview.models) {
           for (const conflict of modelComparison.conflicts || []) {
+            const existingByRecord = database.prepare(`
+              SELECT id FROM sync_conflicts
+              WHERE odoo_model = ?
+                AND record_id = ?
+                AND source_db_id = ?
+                AND target_db_id = ?
+              LIMIT 1
+            `).get(
+              modelComparison.model,
+              conflict.record_id,
+              source_db_id,
+              target_db_id
+            );
+
+            if (existingByRecord) {
+              conflict.conflict_id = existingByRecord.id;
+              conflict.existing = true;
+              continue;
+            }
+
             const sourceValues = typeof conflict.source_values === 'string'
               ? conflict.source_values
               : JSON.stringify(conflict.source_values);
