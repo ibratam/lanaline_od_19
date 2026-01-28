@@ -12,6 +12,8 @@ services:
       LOG_LEVEL: info
       MIDDLEWARE_SECRET_KEY: 39a9f0c3ce28fe3b67f03ae6953c91fd
       DB_PATH: /app/data/middleware.db
+      ODOO_READ_BATCH_SIZE: 500
+      ODOO_RPC_TIMEOUT_MS: 120000
     volumes:
       - ./data:/app/data
     restart: unless-stopped
