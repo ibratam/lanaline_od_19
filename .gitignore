@@ -1,4 +1,5 @@
 node_modules/
+data/
 dist/
 build/
 .env
@@ -11,10 +12,7 @@ build/
 .claude
 .idea/
 coverage/
-data/*.db
-data/*.log
 *.log
 *.swp
 *.swo
 Thumbs.db
-data

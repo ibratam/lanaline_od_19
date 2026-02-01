@@ -13,7 +13,7 @@ export class ConflictResolver {
     this.db = db.getDB ? db.getDB() : db;
     this.configManager = services.configManager || null;
     this.dataPreserver = services.dataPreserver || new DataPreserver();
-    this.syncEngine = new SyncEngine(null);
+    this.syncEngine = new SyncEngine(null, { idMapModel: services.idMapModel || null });
   }
 
   /**
@@ -167,10 +167,26 @@ export class ConflictResolver {
     const connectionId = shouldKeepLocal ? conflict.target_db_id : conflict.source_db_id;
     const updateValues = shouldKeepLocal ? conflict.source_values : conflict.target_values;
     const filteredUpdateValues = this.filterUnsafeFields(conflict.odoo_model, updateValues);
+    const mappingContext = this.syncEngine.getMappingContext(
+      shouldKeepLocal ? conflict.source_db_id : conflict.target_db_id,
+      shouldKeepLocal ? conflict.target_db_id : conflict.source_db_id
+    );
 
     const activeClient = client || await this.createClient(connectionId);
+    let sourceClient = null;
     try {
-      const prepared = this.dataPreserver.prepareUpdateValues(filteredUpdateValues);
+      if (!client && this.configManager && mappingContext) {
+        const sourceConnectionId = shouldKeepLocal ? conflict.source_db_id : conflict.target_db_id;
+        sourceClient = await this.createClient(sourceConnectionId);
+      }
+      const mappedRaw = await this.syncEngine.mapRelationalIdsByBusinessKey(
+        conflict.odoo_model,
+        filteredUpdateValues,
+        activeClient,
+        sourceClient,
+        mappingContext
+      );
+      const prepared = this.dataPreserver.prepareUpdateValues(mappedRaw);
       const filtered = await this.syncEngine.filterWritableFields(
         conflict.odoo_model,
         prepared,
@@ -190,6 +206,9 @@ export class ConflictResolver {
       await activeClient.write(conflict.odoo_model, conflict.record_id, filtered);
       return { status: 'applied' };
     } finally {
+      if (sourceClient) {
+        await sourceClient.close();
+      }
       if (!client) {
         await activeClient.close();
       }

@@ -17,8 +17,13 @@ const DEFAULT_EXCLUDED_MODELS = new Set([
   'pos.payment.method'
 ]);
 const DEFAULT_SAMPLE_FLAG_MODELS = new Set([
+  'sale.order',
+  'sale.order.line',
   'pos.order',
-  'account.move'
+  'pos.order.line',
+  'pos.session',
+  'account.move',
+  'account.move.line'
 ]);
 export const DEFAULT_ALLOWED_MODELS = new Set([
   'res.partner.title',
@@ -29,7 +34,11 @@ export const DEFAULT_ALLOWED_MODELS = new Set([
   'pos.config',
   'pos.session',
   'pos.order',
+  'pos.order.line',
   'sale.order',
+  'sale.order.line',
+  'account.move',
+  'account.move.line',
   'res.partner',
   'res.partner.bank',
   'product.product',
@@ -48,7 +57,11 @@ const DEFAULT_MODEL_ORDER = [
   'pos.config',
   'pos.session',
   'pos.order',
-  'sale.order'
+  'pos.order.line',
+  'sale.order',
+  'sale.order.line',
+  'account.move',
+  'account.move.line'
 ];
 
 /**
@@ -61,6 +74,7 @@ export class SyncEngine {
     this.conflictDetector = new ConflictDetector();
     this.modelFieldCache = new Map();
     this.modelFieldNames = new WeakMap();
+    this.modelFieldMeta = new Map();
     // Hard-disable deletes to prevent destructive operations.
     this.disableDeletes = true;
     const extraExcluded = Array.isArray(options.excludedModels) ? options.excludedModels : [];
@@ -713,6 +727,12 @@ export class SyncEngine {
       const sourceDomain = await this.getModelDomain(sourceClient, model, companyId);
       const targetDomain = await this.getModelDomain(targetClient, model, companyId);
       const comparisonFields = await this.getComparisonFields(sourceClient, targetClient, model);
+      const matchStats = {
+        mapped: 0,
+        business_key: 0,
+        id: 0,
+        create: 0
+      };
 
       const useWindowedIncremental = await this.shouldUseWindowedIncremental(sourceClient, model, incrementalSince);
       if (!useWindowedIncremental && incrementalSince) {
@@ -745,6 +765,10 @@ export class SyncEngine {
         targetData = await targetClient.searchReadAll(model, targetDomain, comparisonFields);
       }
       logger.debug(`Target: ${targetData.length} records in ${model}`);
+      logger.debug(`Domains for ${model}: source=${JSON.stringify(sourceDomain)} target=${JSON.stringify(targetDomain)}`);
+      if (process.env.LOG_COMPARE_STATS === 'true') {
+        logger.info(`Domains for ${model}: source=${JSON.stringify(sourceDomain)} target=${JSON.stringify(targetDomain)}`);
+      }
 
       // Convert to maps for easier lookup
       const sourceMap = new Map(sourceData.map(r => [r.id, r]));
@@ -775,6 +799,9 @@ export class SyncEngine {
             if (targetRecord && writeMappings) {
               this.storeIdMapping(mappingContext, model, id, targetRecord.id);
             }
+            if (targetRecord) {
+              matchStats.mapped += 1;
+            }
           }
         }
         if (!targetRecord) {
@@ -785,6 +812,7 @@ export class SyncEngine {
             if (mappingContext && writeMappings) {
               this.storeIdMapping(mappingContext, model, id, targetMatch.id);
             }
+            matchStats.business_key += 1;
           }
         }
         if (!targetRecord) {
@@ -793,6 +821,9 @@ export class SyncEngine {
           if (targetRecord && mappingContext && writeMappings) {
             this.storeIdMapping(mappingContext, model, id, targetRecord.id);
           }
+          if (targetRecord) {
+            matchStats.id += 1;
+          }
         }
         if (!targetRecord) {
           comparison.to_create.records.push({
@@ -800,6 +831,7 @@ export class SyncEngine {
             data: sourceRecord
           });
           comparison.to_create.count++;
+          matchStats.create += 1;
           continue;
         }
 
@@ -855,6 +887,10 @@ export class SyncEngine {
       }
 
       logger.debug(`Model ${model}: creates=${comparison.to_create.count}, updates=${comparison.to_update.count}, deletes=${comparison.to_delete.count}, conflicts=${comparison.conflicts.length}`);
+      logger.debug(`Model ${model}: match_stats=${JSON.stringify(matchStats)}`);
+      if (process.env.LOG_COMPARE_STATS === 'true') {
+        logger.info(`Model ${model}: match_stats=${JSON.stringify(matchStats)}`);
+      }
 
       return comparison;
     } catch (error) {
@@ -915,7 +951,16 @@ export class SyncEngine {
       const values = dataPreserver
         ? dataPreserver.prepareCreateValues(record.data)
         : record.data;
-      const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
+      let filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
+      if (!mock && targetClient) {
+        filteredValues = await this.mapRelationalIdsByBusinessKey(
+          model,
+          filteredValues,
+          targetClient,
+          dependencySync?.sourceClient || null,
+          mappingContext
+        );
+      }
 
       if (!mock && targetClient) {
         if (model === 'product.template' || model === 'product.product') {
@@ -1439,7 +1484,16 @@ export class SyncEngine {
       const values = dataPreserver
         ? dataPreserver.prepareUpdateValues(record.source)
         : record.source;
-      const filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
+      let filteredValues = await this.filterWritableFields(model, values, targetClient, mock);
+      if (!mock && targetClient) {
+        filteredValues = await this.mapRelationalIdsByBusinessKey(
+          model,
+          filteredValues,
+          targetClient,
+          dependencySync?.sourceClient || null,
+          mappingContext
+        );
+      }
       const sourceId = record.source_id || record.id;
 
       if (!mock && targetClient) {
@@ -1599,6 +1653,18 @@ export class SyncEngine {
     return names;
   }
 
+  async getModelFieldMeta(targetClient, model) {
+    if (!targetClient) {
+      return null;
+    }
+    if (this.modelFieldMeta.has(model)) {
+      return this.modelFieldMeta.get(model);
+    }
+    const fields = await targetClient.getModelFields(model);
+    this.modelFieldMeta.set(model, fields || null);
+    return fields || null;
+  }
+
   getBusinessKeyFieldNames(model) {
     switch (model) {
       case 'product.template':
@@ -1607,6 +1673,9 @@ export class SyncEngine {
         return ['barcode', 'default_code', 'product_tmpl_id', 'combination_indices'];
       case 'res.partner':
         return ['email', 'vat', 'ref', 'name'];
+      case 'sale.order.line':
+      case 'pos.order.line':
+        return ['order_id', 'product_id', 'name'];
       case 'sale.order':
       case 'pos.order':
       case 'pos.config':
@@ -1916,6 +1985,14 @@ export class SyncEngine {
         addKey('ref', record.ref);
         addKey('name', record.name);
         break;
+      case 'sale.order.line':
+      case 'pos.order.line':
+        addCompositeKey('order_product', [
+          this.extractDisplayName(record.order_id),
+          this.extractDisplayName(record.product_id),
+          record.name
+        ]);
+        break;
       case 'sale.order':
       case 'pos.order':
       case 'pos.config':
@@ -2008,6 +2085,117 @@ export class SyncEngine {
       sourceId,
       targetId
     );
+  }
+
+  async resolveTargetIdByBusinessKey(targetClient, sourceClient, model, value, mappingContext = null) {
+    if (!targetClient || !model || !value) {
+      return null;
+    }
+    const sourceId = Array.isArray(value) ? value[0] : (value?.id || value);
+    if (mappingContext && sourceId) {
+      const mappedId = this.getMappedTargetId(mappingContext, model, sourceId);
+      if (mappedId) {
+        return mappedId;
+      }
+    }
+
+    if (model === 'res.partner') {
+      return this.resolvePartnerId(targetClient, sourceClient, value);
+    }
+    if (model === 'res.country') {
+      return this.resolveCountryId(targetClient, sourceClient, value);
+    }
+    if (model === 'res.users') {
+      return this.resolveUserId(targetClient, sourceClient, value);
+    }
+    if (model === 'res.country.state') {
+      return this.resolveStateId(targetClient, sourceClient, value);
+    }
+
+    const displayName = this.extractDisplayName(value);
+    if (displayName) {
+      return this.findModelIdByName(targetClient, model, displayName);
+    }
+
+    if (sourceClient && sourceId) {
+      return this.resolveByBusinessKeyFields(targetClient, sourceClient, model, sourceId);
+    }
+
+    return null;
+  }
+
+  async resolveByBusinessKeyFields(targetClient, sourceClient, model, sourceId) {
+    try {
+      const fields = this.getBusinessKeyFieldNames(model);
+      if (!fields || fields.length === 0) {
+        return null;
+      }
+      const sourceRecords = await sourceClient.read(model, [sourceId], fields);
+      const record = sourceRecords?.[0];
+      if (!record) {
+        return null;
+      }
+
+      for (const field of fields) {
+        const value = record[field];
+        if (value === null || value === undefined) {
+          continue;
+        }
+        if (Array.isArray(value) || typeof value === 'object') {
+          const name = this.extractDisplayName(value);
+          if (!name) {
+            continue;
+          }
+          const ids = await targetClient.search(model, [['name', '=', name]], 0, 1);
+          if (ids.length > 0) {
+            return ids[0];
+          }
+          continue;
+        }
+        const ids = await targetClient.search(model, [[field, '=', value]], 0, 1);
+        if (ids.length > 0) {
+          return ids[0];
+        }
+      }
+    } catch (error) {
+      logger.warn(`Failed to resolve ${model} ${sourceId} by business keys: ${error.message}`);
+    }
+    return null;
+  }
+
+  async mapRelationalIdsByBusinessKey(model, values, targetClient, sourceClient, mappingContext = null) {
+    if (!values || typeof values !== 'object' || !targetClient) {
+      return values;
+    }
+    const fields = await this.getModelFieldMeta(targetClient, model);
+    if (!fields) {
+      return values;
+    }
+    const mapped = { ...values };
+    for (const [field, value] of Object.entries(mapped)) {
+      const meta = fields[field];
+      if (!meta || meta.type !== 'many2one') {
+        continue;
+      }
+      if (!value) {
+        continue;
+      }
+      const comodel = meta.comodel_name;
+      if (!comodel) {
+        continue;
+      }
+      const targetId = await this.resolveTargetIdByBusinessKey(
+        targetClient,
+        sourceClient,
+        comodel,
+        value,
+        mappingContext
+      );
+      if (targetId) {
+        mapped[field] = targetId;
+      }
+    }
+    return mapped;
   }
 
   async findModelIdByName(targetClient, model, name) {
