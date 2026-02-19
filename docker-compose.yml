@@ -1,10 +1,8 @@
-version: "3.9"
-
 services:
   odoo-sync:
     build: .
     ports:
-      - "5000:5000"
+      - "${HOST_PORT:-5001}:5000"
     environment:
       NODE_ENV: production
       PORT: 5000

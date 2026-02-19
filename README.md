@@ -155,6 +155,7 @@ pm2 startup
 | MIDDLEWARE_SECRET_KEY | required | Secret key for credential encryption (min 32 chars) |
 | DB_PATH | ./data/middleware.db | SQLite database path |
 | LOG_LEVEL | info | Winston log level (error, warn, info, debug) |
+| ODOO_ALLOWED_MODELS | unset | Optional comma-separated model allowlist. If unset, sync engine uses all discovered models |
 
 ## Performance Targets
 

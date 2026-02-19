@@ -44,6 +44,7 @@ export const DEFAULT_ALLOWED_MODELS = new Set([
   'product.product',
   'product.template'
 ]);
+const LEGACY_ALLOWED_MODELS = Array.from(DEFAULT_ALLOWED_MODELS);
 const DEFAULT_MODEL_ORDER = [
   'res.partner.title',
   'res.partner.industry',
@@ -84,14 +85,23 @@ export class SyncEngine {
       ? options.sampleFlagModels
       : Array.from(DEFAULT_SAMPLE_FLAG_MODELS);
     this.sampleFlagModels = new Set(sampleFlagModels);
-    const allowedModels = Array.isArray(options.allowedModels)
-      ? options.allowedModels
-      : Array.from(DEFAULT_ALLOWED_MODELS);
-    this.allowedModels = new Set(allowedModels);
+    const hasAllowedModels = Object.prototype.hasOwnProperty.call(options, 'allowedModels');
+    const allowedModels = hasAllowedModels ? options.allowedModels : null;
+    this.allowedModels = Array.isArray(allowedModels) && allowedModels.length > 0
+      ? new Set(allowedModels)
+      : null;
     this.modelOrder = Array.isArray(options.modelOrder) && options.modelOrder.length > 0
       ? options.modelOrder
       : DEFAULT_MODEL_ORDER;
     this.idMapModel = options.idMapModel || null;
+
+    if (this.allowedModels && this.allowedModels.size > 0) {
+      logger.info(`SyncEngine allowlist enabled (${this.allowedModels.size} models)`);
+    } else if (hasAllowedModels && Array.isArray(allowedModels) && allowedModels.length === 0) {
+      logger.warn('SyncEngine allowlist was empty, falling back to syncing all discovered models');
+    } else if (!hasAllowedModels) {
+      logger.debug(`SyncEngine model allowlist disabled by default; legacy preset size was ${LEGACY_ALLOWED_MODELS.length}`);
+    }
   }
 
   /**
@@ -517,16 +527,22 @@ export class SyncEngine {
    */
   async getModelsToSync(sourceClient, targetClient = null, modelFilter = null) {
     try {
+      const normalized = this.normalizeModelSelectionArgs(targetClient, modelFilter);
+      const normalizedTargetClient = normalized.targetClient;
+      const normalizedModelFilter = normalized.modelFilter;
+
       // Get all available models
-      const allModels = await sourceClient.getModels();
+      const allModelsRaw = await sourceClient.getModels();
+      const allModels = Array.isArray(allModelsRaw) ? allModelsRaw : [];
       const allModelNames = new Set(
         allModels
           .map(m => m.model)
           .filter(m => m && !m.startsWith('_'))
       );
       let targetModelNames = null;
-      if (targetClient) {
-        const targetModels = await targetClient.getModels();
+      if (normalizedTargetClient) {
+        const targetModelsRaw = await normalizedTargetClient.getModels();
+        const targetModels = Array.isArray(targetModelsRaw) ? targetModelsRaw : [];
         targetModelNames = new Set(
           targetModels
             .map(m => m.model)
@@ -534,7 +550,7 @@ export class SyncEngine {
         );
       }
 
-      if (!modelFilter || !Array.isArray(modelFilter) || modelFilter.length === 0) {
+      if (!normalizedModelFilter || !Array.isArray(normalizedModelFilter) || normalizedModelFilter.length === 0) {
         const models = Array.from(allModelNames).filter(name => (
           targetModelNames ? targetModelNames.has(name) : true
         ));
@@ -548,7 +564,7 @@ export class SyncEngine {
         return filtered;
       }
 
-      const { models: modelNames, modules } = this.parseModelFilter(modelFilter);
+      const { models: modelNames, modules } = this.parseModelFilter(normalizedModelFilter);
       const selectedModels = new Set();
       modelNames.forEach(name => selectedModels.add(name));
 
@@ -580,7 +596,12 @@ export class SyncEngine {
   }
 
   async getModelSelection(sourceClient, targetClient = null, modelFilter = null) {
-    const sourceModels = await sourceClient.getModels();
+    const normalized = this.normalizeModelSelectionArgs(targetClient, modelFilter);
+    const normalizedTargetClient = normalized.targetClient;
+    const normalizedModelFilter = normalized.modelFilter;
+
+    const sourceModelsRaw = await sourceClient.getModels();
+    const sourceModels = Array.isArray(sourceModelsRaw) ? sourceModelsRaw : [];
     const sourceModelNames = new Set(
       sourceModels
         .map(m => m.model)
@@ -588,8 +609,9 @@ export class SyncEngine {
     );
 
     let targetModelNames = null;
-    if (targetClient) {
-      const targetModels = await targetClient.getModels();
+    if (normalizedTargetClient) {
+      const targetModelsRaw = await normalizedTargetClient.getModels();
+      const targetModels = Array.isArray(targetModelsRaw) ? targetModelsRaw : [];
       targetModelNames = new Set(
         targetModels
           .map(m => m.model)
@@ -597,7 +619,7 @@ export class SyncEngine {
       );
     }
 
-    if (!modelFilter || !Array.isArray(modelFilter) || modelFilter.length === 0) {
+    if (!normalizedModelFilter || !Array.isArray(normalizedModelFilter) || normalizedModelFilter.length === 0) {
       const models = Array.from(sourceModelNames).filter(name => (
         targetModelNames ? targetModelNames.has(name) : true
       ));
@@ -612,7 +634,7 @@ export class SyncEngine {
       };
     }
 
-    const { models: modelNames, modules } = this.parseModelFilter(modelFilter);
+    const { models: modelNames, modules } = this.parseModelFilter(normalizedModelFilter);
     const desiredModels = new Set();
 
     modelNames.forEach(name => {
@@ -667,8 +689,32 @@ export class SyncEngine {
   }
 
   filterAllowedModels(models) {
+    if (!this.allowedModels || this.allowedModels.size === 0) {
+      return { models: [...models] };
+    }
     const filtered = models.filter(model => this.allowedModels.has(model));
     return { models: filtered };
+  }
+
+  normalizeModelSelectionArgs(targetClient, modelFilter) {
+    if (Array.isArray(targetClient) && (modelFilter === null || modelFilter === undefined)) {
+      return {
+        targetClient: null,
+        modelFilter: targetClient
+      };
+    }
+
+    if (targetClient && typeof targetClient.getModels !== 'function') {
+      return {
+        targetClient: null,
+        modelFilter
+      };
+    }
+
+    return {
+      targetClient,
+      modelFilter
+    };
   }
 
   orderModels(models) {

@@ -349,15 +349,17 @@ export class OdooClient {
       if (totalPages === 1 || concurrency <= 1) {
         const results = [];
         let offset = 0;
-        while (true) {
+        let hasMore = true;
+        while (hasMore) {
           const batch = await fetchPage(offset);
           if (Array.isArray(batch) && batch.length > 0) {
             results.push(...batch);
           }
-          if (!batch || batch.length < batchSize) {
-            break;
+          const batchLength = Array.isArray(batch) ? batch.length : 0;
+          hasMore = batchLength === batchSize;
+          if (hasMore) {
+            offset += batchSize;
           }
-          offset += batchSize;
         }
         return results;
       }
@@ -367,12 +369,12 @@ export class OdooClient {
       let cursor = 0;
 
       const worker = async () => {
-        while (true) {
+        let hasWork = true;
+        while (hasWork) {
           const index = cursor;
           cursor += 1;
-          if (index >= offsets.length) {
-            break;
-          }
+          hasWork = index < offsets.length;
+          if (!hasWork) break;
           const offset = offsets[index];
           const batch = await fetchPage(offset);
           if (Array.isArray(batch) && batch.length > 0) {
@@ -577,13 +579,19 @@ export class OdooClient {
           [[]],
           {
             fields: ['id', 'name', 'model', 'modules'],
-            limit: 1000
+            limit: 0,
+            order: 'model asc'
           }
         ],
         kwargs: {}
       });
 
-      return result || [];
+      return (Array.isArray(result) ? result : [])
+        .filter(item => typeof item?.model === 'string' && item.model.trim() && !item.model.startsWith('_'))
+        .map(item => ({
+          ...item,
+          model: item.model.trim()
+        }));
     } catch (error) {
       logger.error('Error fetching models:', error);
       throw error;
@@ -610,14 +618,20 @@ export class OdooClient {
           'search_read',
           [[['state', '=', 'installed']]],
           {
-            fields: ['name', 'shortdesc'],
-            limit: 0
+            fields: ['name', 'shortdesc', 'state'],
+            limit: 0,
+            order: 'name asc'
           }
         ],
         kwargs: {}
       });
 
-      return result || [];
+      return (Array.isArray(result) ? result : [])
+        .filter(module => typeof module?.name === 'string' && module.name.trim())
+        .map(module => ({
+          ...module,
+          name: module.name.trim()
+        }));
     } catch (error) {
       logger.error('Error fetching modules:', error);
       throw error;
@@ -675,30 +689,6 @@ export class OdooClient {
 
       logger.info(`Fetching models for module: ${normalized}`);
 
-      const dataResult = await this.call('object.execute_kw', {
-        args: [
-          this.database,
-          this.uid,
-          this.password,
-          'ir.model.data',
-          'search_read',
-          [[['module', '=', normalizedLower], ['model', '=', 'ir.model']]],
-          {
-            fields: ['res_id'],
-            limit: 0
-          }
-        ],
-        kwargs: {}
-      });
-
-      const ids = Array.from(new Set((dataResult || [])
-        .map(entry => entry?.res_id)
-        .filter(id => Number.isInteger(id) && id > 0)));
-
-      if (ids.length === 0) {
-        return [];
-      }
-
       const modelResult = await this.call('object.execute_kw', {
         args: [
           this.database,
@@ -706,16 +696,34 @@ export class OdooClient {
           this.password,
           'ir.model',
           'search_read',
-          [[['id', 'in', ids]]],
+          [[['modules', 'ilike', normalizedLower]]],
           {
-            fields: ['id', 'name', 'model'],
-            limit: 0
+            fields: ['id', 'name', 'model', 'modules'],
+            limit: 0,
+            order: 'model asc'
           }
         ],
         kwargs: {}
       });
 
-      return modelResult || [];
+      return (Array.isArray(modelResult) ? modelResult : [])
+        .filter(item => {
+          const modelName = typeof item?.model === 'string' ? item.model.trim() : '';
+          if (!modelName || modelName.startsWith('_')) {
+            return false;
+          }
+          const modules = String(item?.modules || '')
+            .split(',')
+            .map(entry => entry.trim().toLowerCase())
+            .filter(Boolean);
+          return modules.includes(normalizedLower);
+        })
+        .map(item => ({
+          id: item.id,
+          name: item.name,
+          model: item.model.trim(),
+          modules: item.modules
+        }));
     } catch (error) {
       logger.error(`Error fetching models for module ${moduleName}:`, error);
       throw error;
@@ -790,8 +798,6 @@ export class OdooClient {
   delay(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
-
-  
 }
 
 export default OdooClient;
